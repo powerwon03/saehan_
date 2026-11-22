@@ -41,9 +41,16 @@ const today = () => seoul(Date.now()).date;
 export const demoEnabled = () => (process.env.DEMO ?? 'on').toLowerCase() !== 'off';
 
 function makeBackend(): Backend {
-  const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  // 붙여 넣다가 따라 들어온 따옴표·공백·줄바꿈은 떼어 낸다
+  const env = (v: string | undefined) => (v ?? '').trim().replace(/^["']|["']$/g, '');
+  const url = env(process.env.SUPABASE_URL) || env(process.env.NEXT_PUBLIC_SUPABASE_URL);
+  const key = env(process.env.SUPABASE_SERVICE_ROLE_KEY);
   if (url && key) return supabaseBackend(httpTransport(url, key));
+  if (process.env.VERCEL) {
+    // Vercel에는 파일을 저장할 곳이 없어 로컬 파일로 돌아갈 수 없다.
+    const missing = [!url && 'SUPABASE_URL', !key && 'SUPABASE_SERVICE_ROLE_KEY'].filter(Boolean).join(', ');
+    throw new StoreError(`Vercel 환경 변수 ${missing} 이(가) 없습니다. Settings → Environment Variables 에 넣고 다시 배포(Redeploy)하세요.`);
+  }
   if (url && !key) {
     G.note = 'SUPABASE_SERVICE_ROLE_KEY 가 비어 있어 로컬 파일(data/saehan.db)에 저장하고 있습니다.';
     console.warn(`[${APP_NAME}] ${G.note}`);

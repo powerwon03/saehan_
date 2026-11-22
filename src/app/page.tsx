@@ -52,7 +52,8 @@ export default function Home() {
   const loadRoster = useCallback(() => {
     get('/api/roster')
       .then((r) => { setPeople(r.people); setCast(r.cast); })
-      .catch(() => setPeople((p) => p ?? []));
+      // 서버가 알려 준 원인(예: 환경 변수 없음)을 그대로 보여 준다
+      .catch((e) => { setPeople((p) => p ?? []); setErr((e as Error).message); });
   }, []);
 
   useEffect(() => {
