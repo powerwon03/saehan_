@@ -251,18 +251,42 @@ export function attendanceView(s: State, month: string) {
     };
   }).filter((r) => r.active || r.work || r.missed);
 
-  // 아웃소싱 투입 현황: 날짜 · 교대 · 공장 · 업체별 인원
-  const out = new Map<string, { date: string; shift: Shift; factory: string; agency: string; male: number; female: number }>();
+  return { month, days, rows, outsourced: outsourcedRows(s, month).map(({ date, shift, factory, agency, male, female }) => ({ date, shift, factory, agency, male, female })) };
+}
+
+// ───────────── 관리자: 아웃소싱 ─────────────
+
+/** 그 달의 아웃소싱 투입 현황: 날짜 · 교대 · 공장 · 업체별 인원 */
+function outsourcedRows(s: State, month: string) {
+  const I = ix(s);
+  const out = new Map<string, { date: string; shift: Shift; factoryId: string; factory: string; agencyId: string; agency: string; male: number; female: number }>();
   for (const a of s.assignments) {
     if (!isOut(a.personId) || monthOf(a.date) !== month) continue;
     const info = outInfo(s, a.personId);
     const key = `${a.date}|${a.shift}|${a.factoryId}|${info.agencyId}`;
-    const row = out.get(key) ?? { date: a.date, shift: a.shift, factory: I.factory.get(a.factoryId)?.name ?? '', agency: info.agency?.name ?? '아웃소싱', male: 0, female: 0 };
+    const row = out.get(key) ?? {
+      date: a.date, shift: a.shift, factoryId: a.factoryId, factory: I.factory.get(a.factoryId)?.name ?? '',
+      agencyId: info.agencyId, agency: info.agency?.name ?? '아웃소싱', male: 0, female: 0,
+    };
     if (info.gender === 'M') row.male++; else row.female++;
     out.set(key, row);
   }
-  const outsourced = [...out.values()].sort((a, b) => (a.date + a.shift + a.factory < b.date + b.shift + b.factory ? -1 : 1));
-  return { month, days, rows, outsourced };
+  return [...out.values()].sort((a, b) => (a.date + a.shift + a.factory < b.date + b.shift + b.factory ? -1 : 1));
+}
+
+/** 아웃소싱 메뉴: 업체 목록(그 달 요청 인원 포함)과 그 달의 요청 현황 */
+export function outsourceView(s: State, now: number, q: { month?: string }) {
+  const month = q.month && /^\d{4}-(0[1-9]|1[0-2])$/.test(q.month) ? q.month : monthOf(seoul(now).date);
+  const rows = outsourcedRows(s, month);
+  const sum = (id: string, k: 'male' | 'female') => rows.filter((r) => r.agencyId === id).reduce((n, r) => n + r[k], 0);
+  return {
+    month, rows,
+    total: rows.reduce((n, r) => n + r.male + r.female, 0),
+    agencies: s.settings.agencies.map((ag) => {
+      const male = sum(ag.id, 'male'), female = sum(ag.id, 'female');
+      return { ...ag, male, female, total: male + female };
+    }),
+  };
 }
 
 // ───────────── 관리자: 주 단위 생산계획 ─────────────

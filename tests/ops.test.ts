@@ -6,7 +6,7 @@ import { autoAssign, confirmBoard, fillOutsource, FlowError, placeOutsource, rep
 import { seedDemo, virtualize } from '@/lib/seed';
 import { pickDemoCast, stageDemoPlan } from '@/lib/demo';
 import { adminAction } from '@/server/actions';
-import { alertsView, attendanceView, boardView, defaultBoard, leavesView, planView } from '@/server/views';
+import { alertsView, attendanceView, boardView, defaultBoard, leavesView, outsourceView, planView } from '@/server/views';
 
 // 2025-04-28(월): 1공장 A조 주간 · B조 야간 · C조 휴무
 const D = '2025-04-28';
@@ -114,6 +114,13 @@ describe('아웃소싱(일용직) 인원 요청', () => {
     expect(v.absences.find((a) => a.postId === 'f1-L2')!.resolvedName).toBe(`${agency.name}-여`);
     // 월 근태표에는 업체별 투입 인원이 따로 나온다
     expect(attendanceView(s, '2025-04').outsourced).toEqual([{ date: D, shift: 'night', factory: '1공장', agency: agency.name, male: 1, female: 1 }]);
+    // 「아웃소싱」 메뉴: 그 달의 요청 현황과 업체별 합계
+    const o = outsourceView(s, NOW, {});
+    expect(o).toMatchObject({ month: '2025-04', total: 2 });
+    expect(o.rows).toEqual([{ date: D, shift: 'night', factoryId: 'f1', factory: '1공장', agencyId: agency.id, agency: agency.name, male: 1, female: 1 }]);
+    expect(o.agencies.find((a) => a.id === agency.id)).toMatchObject({ name: agency.name, male: 1, female: 1, total: 2 });
+    expect(o.agencies.find((a) => a.id !== agency.id)).toMatchObject({ total: 0 });
+    expect(outsourceView(s, NOW, { month: '2025-05' })).toMatchObject({ month: '2025-05', total: 0, rows: [] });
   });
 
   it('남은 빈자리를 한 번에 채우고, 다 찬 자리에는 더 넣지 못한다', () => {
