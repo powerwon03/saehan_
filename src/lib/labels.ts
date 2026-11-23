@@ -8,7 +8,7 @@ export const KIND_SHORT: Record<AbsenceKind, string> = { absent: '결', sick: '�
 /** 조 이름. 화면에는 「A조」, 주간조는 「주간」으로 적는다 */
 export const CREW_LABEL: Record<Crew, string> = { A: 'A조', B: 'B조', C: 'C조', DAY: '주간' };
 export const CREW_SHORT: Record<Crew, string> = { A: 'A', B: 'B', C: 'C', DAY: '주간' };
-export const LANG_LABEL: Record<string, string> = { ko: '한국어', en: 'English', mn: '몽골어', vi: '베트남어' };
+export const LANG_LABEL: Record<string, string> = { ko: '한국어', en: 'English', mn: '몽골어', vi: '베트남어', ne: '네팔어' };
 export const REPORTER_LABEL: Record<string, string> = { self: '본인', leader: '반장', support: '지원팀' };
 /** 라인에 서는 사람의 역할 */
 export const LINE_ROLE = '검사원';

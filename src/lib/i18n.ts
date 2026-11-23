@@ -1,5 +1,5 @@
 // 근무자 화면 문구 사전. 기계 번역을 쓰지 않고 여기에만 둔다(원터치 라인과 같은 문구).
-// 몽골어·베트남어는 초안이므로 원어민 검수가 필요하다.
+// 몽골어·베트남어·네팔어는 초안이므로 원어민 검수가 필요하다.
 import type { Lang } from './types';
 
 const ko = {
@@ -189,9 +189,56 @@ const vi: Dict = {
   histNote: 'Tính theo lịch ca và ghi nhận nghỉ',
 };
 
-export const DICT: Record<Lang, Dict> = { ko, en, mn, vi };
-export const LANG_NAMES: Record<Lang, string> = { ko: '한국어', en: 'English', mn: 'Монгол', vi: 'Tiếng Việt' };
-export const LANGS: Lang[] = ['ko', 'en', 'mn', 'vi'];
+// 네팔어 — 초안. 원어민 검수가 필요하다.
+const ne: Dict = {
+  hello: '{name} ज्यू',
+  todayWork: 'आजको काम',
+  day: 'दिउँसो',
+  night: 'राति',
+  noWorkToday: 'आज तपाईंको बिदा हो',
+  cantGo: 'आज म आउन सक्दिनँ',
+  reqTitle: 'आज काममा आउन सक्नुहुन्छ?',
+  willGo: 'आउन सक्छु',
+  cantCome: 'सक्दिनँ',
+  minLeft: '{n} मिनेटभित्र थिच्नुहोस्',
+  reported: 'टोली नेतालाई जानकारी दिइयो',
+  reportedSub: 'तपाईंको सट्टा काम गर्ने व्यक्ति खोज्दैछौं',
+  undo: 'गल्तीले थिचेँ',
+  undone: 'रद्द गरियो। सधैँ जस्तै काममा आउनुहोस्',
+  taken: 'अर्को व्यक्ति जाने भयो। धन्यवाद',
+  confirmed: 'धन्यवाद। आजको काम पक्का भयो',
+  declinedMsg: 'ठिक छ',
+  home: 'सुरु पृष्ठमा',
+  alreadyReported: 'आज आउन नसक्ने जानकारी दिइसक्नुभयो',
+  factory1: 'कारखाना १',
+  factory2: 'कारखाना २',
+  weekdays: 'आइत,सोम,मंगल,बुध,बिही,शुक्र,शनि',
+  leave: 'बिदा माग्ने',
+  leavePick: 'बिदा चाहिएको दिन थिच्नुहोस्',
+  leaveSend: 'यो दिन बिदा माग्ने',
+  leaveSent: 'बिदाको अनुरोध पठाइयो',
+  leaveSentSub: 'स्वीकृत भएपछि यहाँ देखिनेछ',
+  myLeaves: 'मेरो बिदा अनुरोध',
+  pending: 'पर्खँदै',
+  approved: 'स्वीकृत',
+  rejected: 'अस्वीकृत',
+  cancelLeave: 'रद्द',
+  logout: 'सुरुमा',
+  deadlinePassed: 'काम सुरु भइसकेकाले यहाँबाट जानकारी दिन मिल्दैन',
+  history: 'मासिक काम विवरण',
+  histMonth: '{y} साल {m} महिना',
+  histDays: '{n} दिन काम',
+  histShifts: 'दिउँसो {d} पटक · राति {n} पटक',
+  histHours: '{n} घण्टा',
+  histSubs: 'सट्टामा काम {n} पटक',
+  histOff: 'नआएको {n} दिन',
+  histThisMonth: 'यो महिना',
+  histNote: 'सिफ्ट तालिका र अनुपस्थिति/बिदा विवरणका आधारमा गणना गरिएको',
+};
+
+export const DICT: Record<Lang, Dict> = { ko, en, mn, vi, ne };
+export const LANG_NAMES: Record<Lang, string> = { ko: '한국어', en: 'English', mn: 'Монгол', vi: 'Tiếng Việt', ne: 'नेपाली' };
+export const LANGS: Lang[] = ['ko', 'en', 'mn', 'vi', 'ne'];
 
 /** 문구를 고르고 {이름} 자리를 채운다 */
 export function tr(lang: Lang, key: DictKey, vars: Record<string, string | number> = {}) {

@@ -3,7 +3,7 @@
 export type Shift = 'day' | 'night';
 /** A·B·C = 교대조, DAY = 「주간」조(평일 주간만 근무) */
 export type Crew = 'A' | 'B' | 'C' | 'DAY';
-export type Lang = 'ko' | 'en' | 'mn' | 'vi';
+export type Lang = 'ko' | 'en' | 'mn' | 'vi' | 'ne';
 export type Gender = '' | 'M' | 'F';
 
 export interface Factory {

@@ -108,7 +108,7 @@ const normDate = (v: string) => {
   return isDate(d) ? d : '';
 };
 const CREW_IN: Record<string, Crew> = { A: 'A', B: 'B', C: 'C', A조: 'A', B조: 'B', C조: 'C', 주간: 'DAY', 주간조: 'DAY', DAY: 'DAY' };
-const LANG_IN: Record<string, Lang> = { 한국어: 'ko', 영어: 'en', 몽골어: 'mn', 베트남어: 'vi', ko: 'ko', en: 'en', mn: 'mn', vi: 'vi' };
+const LANG_IN: Record<string, Lang> = { 한국어: 'ko', 영어: 'en', 몽골어: 'mn', 베트남어: 'vi', 네팔어: 'ne', ko: 'ko', en: 'en', mn: 'mn', vi: 'vi', ne: 'ne' };
 const SKILL_WORDS: Record<string, number> = { 없음: 0, '-': 0, 초급: 1, 보조: 1, 중급: 2, 단독: 2, 숙련: 3, 지도: 3 };
 /** 숙련도 칸: 0~3 또는 없음·초급·중급·숙련. 빈칸은 바꾸지 않는다 */
 function skillIn(v: string): number | undefined {
