@@ -123,7 +123,7 @@ async function bootstrap(b: Backend) {
       try {
         const file = path.join(process.cwd(), 'data', 'admin-password.txt');
         fs.mkdirSync(path.dirname(file), { recursive: true });
-        fs.writeFileSync(file, `새한 프라텍 관리자 첫 비밀번호\n아이디: admin\n비밀번호: ${pw}\n\n로그인한 뒤 「설정」에서 바꾸고 이 파일은 지우세요.\n`, 'utf8');
+        fs.writeFileSync(file, `새한 프라텍 관리자 첫 비밀번호\n아이디: admin\n비밀번호: ${pw}\n\n로그인한 뒤 「기준 정보」 맨 아래에서 바꾸고 이 파일은 지우세요.\n`, 'utf8');
         console.log(`[${APP_NAME}] 관리자 첫 비밀번호를 data/admin-password.txt 에 적었습니다.`);
       } catch {
         console.warn(`[${APP_NAME}] 관리자 비밀번호 파일을 쓸 수 없습니다. ADMIN_PASSWORD 환경 변수를 설정하거나 npm run company 로 다시 정하세요.`);

@@ -1,17 +1,20 @@
 'use client';
-// 기준 정보: 제품 마스터(코드로만 선택하게), 공장별 라인·고정 자리, 표준 인원(라인 × 제품).
+// 기준 정보: 제품 마스터(코드로만 선택하게), 공장별 라인·고정 자리, 표준 인원(라인 × 제품), 아웃소싱 업체,
+// 교대 달력 보기, 관리자 비밀번호 바꾸기.
 import { useEffect, useState } from 'react';
 import { get, type Any } from '../client';
 import type { TabProps } from './page';
-import { LINE_ROLE, ROLES } from '@/lib/labels';
+import { CREW_LABEL, LINE_ROLE, ROLES, WEEKDAY, md } from '@/lib/labels';
+import { dow } from '@/lib/dates';
 
-export default function Master({ act, refresh, say }: TabProps) {
+export default function Master({ act, refresh, say, me }: TabProps) {
   const [d, setD] = useState<Any>(null);
   const [factory, setFactory] = useState('');
   const [prod, setProd] = useState<Any>(null);
   const [post, setPost] = useState<Any>(null);
   const [std, setStd] = useState<Any>({ postId: '', productId: '', need: 1, gender: '' });
   const [agency, setAgency] = useState<Any>(null);
+  const [pw, setPw] = useState({ current: '', next: '' });
 
   useEffect(() => {
     get('/api/admin/master').then((r) => { setD(r); setFactory((f) => f || r.factories[0]?.id || ''); }).catch((e) => say(e.message, true));
@@ -27,7 +30,7 @@ export default function Master({ act, refresh, say }: TabProps) {
     <div style={{ maxWidth: 1100 }}>
       <div className="toolbar">
         <h1 style={{ fontSize: 20 }}>기준 정보</h1>
-        <span className="muted">제품·라인·표준 인원을 회사가 직접 정합니다.</span>
+        <span className="muted">제품·라인·표준 인원을 회사가 직접 정합니다. · 저장소: {me.storage?.kind === 'supabase' ? 'Supabase' : '이 컴퓨터의 파일'}</span>
       </div>
       <div className="toolbar">
         <div className="seg">
@@ -136,6 +139,41 @@ export default function Master({ act, refresh, say }: TabProps) {
         </table>
       </div>
       <button className="btn" style={{ marginTop: 10 }} onClick={() => setAgency({ name: '', phone: '' })}>업체 추가</button>
+
+      <h2 style={{ fontSize: 17, margin: '24px 0 4px' }}>교대 달력 <span className="muted" style={{ fontSize: 13, fontWeight: 500 }}>앞으로 14일 동안 어느 조가 근무하는지</span></h2>
+      <p className="muted" style={{ margin: '0 0 10px', fontSize: 13 }}>
+        근무시간 주간 {d.settings.dayStart}~{d.settings.nightStart} · 야간 {d.settings.nightStart}~{d.settings.dayStart}. 「주간」조는 평일 주간만 근무합니다.
+      </p>
+      <div className="table-scroll">
+        <table className="cal">
+          <thead>
+            <tr><th /><th />{d.calendar[0]?.days.map((x: Any) => <th key={x.date}>{md(x.date)}<br />{WEEKDAY[dow(x.date)]}</th>)}</tr>
+          </thead>
+          <tbody>
+            {d.calendar.flatMap((c: Any) => (['day', 'night'] as const).map((sh) => (
+              <tr key={c.factoryId + sh}>
+                {sh === 'day' && <th rowSpan={2}>{c.name}</th>}
+                <th>{sh === 'day' ? '주간' : '야간'}</th>
+                {c.days.map((x: Any) => <td key={x.date}>{x[sh].map((k: string) => CREW_LABEL[k as 'A']).join(', ') || '-'}</td>)}
+              </tr>
+            )))}
+          </tbody>
+        </table>
+      </div>
+
+      {!me.session.demo && (
+        <>
+          <h2 style={{ fontSize: 17, margin: '24px 0 10px' }}>관리자 비밀번호 바꾸기</h2>
+          <form className="inline-form" onSubmit={async (e) => {
+            e.preventDefault();
+            if (await act({ type: 'adminPassword', ...pw }, '비밀번호를 바꿨습니다.')) setPw({ current: '', next: '' });
+          }}>
+            <input type="password" placeholder="지금 비밀번호" autoComplete="current-password" value={pw.current} onChange={(e) => setPw({ ...pw, current: e.target.value })} />
+            <input type="password" placeholder="새 비밀번호 (8자 이상)" autoComplete="new-password" value={pw.next} onChange={(e) => setPw({ ...pw, next: e.target.value })} />
+            <button className="btn" disabled={!pw.current || pw.next.length < 8}>바꾸기</button>
+          </form>
+        </>
+      )}
 
       {agency && (
         <Dialog title={agency.id ? `${agency.name} 수정` : '아웃소싱 업체 추가'} onClose={() => setAgency(null)}
