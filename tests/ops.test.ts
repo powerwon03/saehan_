@@ -6,7 +6,7 @@ import { autoAssign, confirmBoard, fillOutsource, FlowError, placeOutsource, rep
 import { seedDemo, virtualize } from '@/lib/seed';
 import { pickDemoCast, stageDemoPlan } from '@/lib/demo';
 import { adminAction } from '@/server/actions';
-import { attendanceView, boardView, defaultBoard, planView } from '@/server/views';
+import { alertsView, attendanceView, boardView, defaultBoard, leavesView, planView } from '@/server/views';
 
 // 2025-04-28(월): 1공장 A조 주간 · B조 야간 · C조 휴무
 const D = '2025-04-28';
@@ -215,6 +215,39 @@ describe('주 단위 생산계획 (금요일 야간 ~ 다음 금요일 주간)',
     expect(line.cells.every((c) => c.set)).toBe(true);
     expect(line.cells[4]).toMatchObject({ productId: 'pr-det1l', status: 'run' });
     expect(line.cells[6].status).toBe('off');
+  });
+});
+
+describe('「오늘 못 나와요」 신고 알림 (휴무 승인 메뉴)', () => {
+  it('근무자가 누른 신고가 목록과 배지에 뜨고, 대신 설 사람이 정해지면 배지에서 빠진다', () => {
+    const s = seedDemo();
+    autoAssign(s, 'f1', D, 'night', NOW);
+    confirmBoard(s, 'f1', D, 'night', NOW);
+    expect(alertsView(s, NOW)).toMatchObject({ total: 0, openReports: 0, reports: [] });
+    const mine = s.assignments.find((a) => a.postId === 'f1-L2')!;
+    const name = personName(s, mine.personId);
+    const ab = reportAbsence(s, { personId: mine.personId, date: D, shift: 'night', kind: 'absent', reportedBy: 'self' }, NOW)!;
+    expect(alertsView(s, NOW)).toMatchObject({ total: 1, openReports: 1, reports: [{ id: ab.id, name, factory: '1공장', shift: 'night' }] });
+    expect(leavesView(s, NOW).reports[0]).toMatchObject({ name, status: 'decided', open: true, postCode: 'L-2', factoryId: 'f1', date: D, shift: 'night' });
+    expect(boardView(s, NOW, { factoryId: 'f1', date: D, shift: 'night' }).pendingLeaves).toBe(1);
+    // 관리자가 직접 등록한 결근은 알림 대상이 아니다
+    const other = s.assignments.find((a) => a.postId === 'f1-L3')!;
+    reportAbsence(s, { personId: other.personId, date: D, shift: 'night', kind: 'sick', reportedBy: 'support' }, NOW);
+    expect(alertsView(s, NOW).openReports).toBe(1);
+    // 휴무 신청 대기와 합쳐서 배지에 보인다
+    const off = recommend(s, { factoryId: 'f1', date: D, shift: 'night', postId: 'f1-L2' }).find((c) => c.type === 'off')!;
+    adminAction(s, NOW, { type: 'placeAbsence', absenceId: ab.id, personId: off.personId });
+    expect(alertsView(s, NOW)).toMatchObject({ total: 0, openReports: 0 });
+    expect(leavesView(s, NOW).reports[0]).toMatchObject({ status: 'resolved', open: false, resolvedName: off.name });
+  });
+
+  it('이틀 넘게 지난 신고는 목록에서 빠진다', () => {
+    const s = seedDemo();
+    autoAssign(s, 'f1', D, 'night', NOW);
+    const mine = s.assignments.find((a) => a.postId === 'f1-L2')!;
+    reportAbsence(s, { personId: mine.personId, date: D, shift: 'night', kind: 'absent', reportedBy: 'self' }, NOW);
+    expect(leavesView(s, seoulMs(addDays(D, 1), '09:00')).reports).toHaveLength(1);
+    expect(leavesView(s, seoulMs(addDays(D, 2), '09:00')).reports).toHaveLength(0);
   });
 });
 

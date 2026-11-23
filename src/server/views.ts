@@ -120,7 +120,8 @@ export function boardView(s: State, now: number, q: { factoryId?: string; date?:
     summary: { need, present, diff: present - need },
     rows, standby, absences,
     products: s.products.filter((p) => p.active).map((p) => ({ id: p.id, code: p.code, name: p.name, urgent: p.urgent })),
-    pendingLeaves: s.leaves.filter((l) => l.status === 'pending').length,
+    // 메뉴 배지: 승인 대기 휴무 + 아직 처리하지 않은 「오늘 못 나와요」 신고
+    pendingLeaves: alertsView(s, now).total,
     messages: s.messages.filter((m) => m.personId === null).slice(-15).reverse().map((m) => ({ id: m.id, body: m.body, at: m.at })),
   };
 }
@@ -158,12 +159,42 @@ export function peopleView(s: State, locked: string[], now: number) {
   };
 }
 
+/** 근무자가 직접 누른 「오늘 못 나와요」 신고(어제 야간 교대부터). open = 아직 대신 설 사람이 정해지지 않음 */
+export function reportsView(s: State, now: number) {
+  const I = ix(s);
+  const from = addDays(seoul(now).date, -1);
+  return s.absences
+    .filter((a) => a.reportedBy === 'self' && a.kind !== 'leave' && a.date >= from)
+    .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
+    .map((a) => {
+      const p = I.person.get(a.personId);
+      const post = a.postId ? I.post.get(a.postId) : null;
+      return {
+        id: a.id, name: p?.name ?? '(삭제됨)', crew: p?.crew ?? '', factoryId: a.factoryId, factory: I.factory.get(a.factoryId)?.name ?? '',
+        date: a.date, shift: a.shift, postCode: post?.code ?? '', postName: post?.name ?? '', status: a.status,
+        open: a.status === 'decided' || a.status === 'in-progress' || a.status === 'pre-board' || a.status === 'failed',
+        createdAt: a.createdAt, resolvedName: personName(s, a.resolvedPersonId),
+      };
+    });
+}
+
+/** 메뉴 배지와 새 신고 알림에 쓰는 가벼운 데이터 */
+export function alertsView(s: State, now: number) {
+  const reports = reportsView(s, now).filter((r) => r.open);
+  const pendingLeaves = s.leaves.filter((l) => l.status === 'pending').length;
+  return {
+    pendingLeaves, openReports: reports.length, total: pendingLeaves + reports.length,
+    reports: reports.map((r) => ({ id: r.id, name: r.name, factory: r.factory, shift: r.shift })),
+  };
+}
+
 export function leavesView(s: State, now: number) {
   const I = ix(s);
   const today = seoul(now).date;
   const order = { pending: 0, approved: 1, rejected: 2 };
   return {
     today,
+    reports: reportsView(s, now),
     leaves: s.leaves
       .filter((l) => l.status === 'pending' || l.date >= addDays(today, -30))
       .map((l) => {

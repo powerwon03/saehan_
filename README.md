@@ -95,7 +95,7 @@ npm run import:2025 -- "<1공장 근태 자료 폴더>" "<2공장 근태 자료 
 | 명령 | 하는 일 |
 | --- | --- |
 | `npm run dev` / `npm run build` / `npm start` | 개발 서버 / 빌드 / 운영 서버 |
-| `npm test` | 테스트 88개 (엔진 규칙, 업무 흐름, 결원 충원·아웃소싱·주 단위 생산계획, 저장소·Supabase 스키마, 로그인·권한, 근무자 화면 문구, 시연 12일 연속 흐름) |
+| `npm test` | 테스트 90개 (엔진 규칙, 업무 흐름, 결원 충원·아웃소싱·주 단위 생산계획, 저장소·Supabase 스키마, 로그인·권한, 근무자 화면 문구, 시연 12일 연속 흐름) |
 | `npm run import:2025 -- <폴더> <폴더> [--apply]` | 2025년 실제 자료 가져오기 |
 | `npm run schema` | `src/server/schema.ts` 의 표 정의에서 `supabase/schema.sql` 을 다시 만듭니다 |
 | `npm run company -- 회사코드 회사이름 --admin-password=비밀번호` | 회사 등록. 이미 있는 회사면 관리자 비밀번호만 바꿉니다 |

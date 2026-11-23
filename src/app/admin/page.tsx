@@ -33,6 +33,8 @@ export default function Admin() {
   const [toast, setToast] = useState<{ text: string; bad: boolean } | null>(null);
   const [pending, setPending] = useState(0);
   const rev = useRef<number | null>(null);
+  // 이미 알린 「오늘 못 나와요」 신고(처음 불러올 때 있던 것은 다시 알리지 않는다)
+  const seenReports = useRef<Set<string> | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const say = useCallback((text: string, bad = false) => {
@@ -63,6 +65,19 @@ export default function Admin() {
     const t = setInterval(tick, 4000);
     return () => clearInterval(t);
   }, [me]);
+
+  // 어느 메뉴에 있든 휴무 승인 배지를 맞추고, 새 「오늘 못 나와요」 신고가 들어오면 알린다.
+  useEffect(() => {
+    if (!me) return;
+    get('/api/admin/alerts').then((a) => {
+      setPending(a.total);
+      const fresh = a.reports.filter((r: Any) => seenReports.current && !seenReports.current.has(r.id));
+      seenReports.current = new Set([...(seenReports.current ?? []), ...a.reports.map((r: Any) => r.id)]);
+      if (fresh.length) {
+        say(`${fresh.map((r: Any) => r.name).join(', ')} 님이 「오늘 못 나와요」를 눌렀습니다. 휴무 승인 메뉴에서 확인하세요.`, true);
+      }
+    }).catch(() => { /* 다음에 다시 */ });
+  }, [me, refresh, say]);
 
   const act = useCallback(async (body: Any, okMessage?: string) => {
     setSaving('saving');
