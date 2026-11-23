@@ -1,7 +1,7 @@
 import { api, HttpError, requireAdmin } from '@/server/session';
 import { read } from '@/server/store';
 import { lockedWorkers } from '@/server/accounts';
-import { attendanceView, boardView, leavesView, masterView, peopleView, slotView } from '@/server/views';
+import { attendanceView, boardView, leavesView, masterView, peopleView, planView, slotView } from '@/server/views';
 import { isDate } from '@/lib/dates';
 
 export async function GET(req: Request, ctx: { params: Promise<{ view: string }> }) {
@@ -25,6 +25,8 @@ export async function GET(req: Request, ctx: { params: Promise<{ view: string }>
       }
       case 'leaves':
         return read(s.c, (st, now) => leavesView(st, now));
+      case 'plan':
+        return read(s.c, (st, now) => planView(st, now, { factoryId: g('factory'), week: g('week') }));
       case 'master':
         return read(s.c, (st, now) => masterView(st, now));
       case 'attendance': {

@@ -1,8 +1,9 @@
 'use client';
-// 관리자 화면(PC). 메뉴: 배치 · 휴무 승인 · 근로자 관리 · 엑셀 가져오기 (+ 기준 정보 · 설정)
+// 관리자 화면(PC). 메뉴: 배치 · 생산계획 · 휴무 승인 · 근로자 관리 · 엑셀 가져오기 (+ 기준 정보 · 설정)
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { get, post, type Any } from '../client';
 import Board from './Board';
+import Plan from './Plan';
 import Leaves from './Leaves';
 import People from './People';
 import Excel from './Excel';
@@ -20,7 +21,7 @@ export interface TabProps {
 }
 
 const TABS: [string, string][] = [
-  ['board', '배치'], ['leaves', '휴무 승인'], ['people', '근로자 관리'], ['import', '엑셀 가져오기'], ['master', '기준 정보'], ['settings', '설정'],
+  ['board', '배치'], ['plan', '생산계획'], ['leaves', '휴무 승인'], ['people', '근로자 관리'], ['import', '엑셀 가져오기'], ['master', '기준 정보'], ['settings', '설정'],
 ];
 const SAVE_LABEL: Record<string, string> = { loading: '불러오는 중', saved: '저장됨', saving: '저장 중', error: '저장 재시도 중' };
 
@@ -105,6 +106,7 @@ export default function Admin() {
       {me.storage?.note && <div className="notice-bar">{me.storage.note}</div>}
       <main className="admin-main">
         {tab === 'board' && <Board {...props} onPending={setPending} />}
+        {tab === 'plan' && <Plan {...props} />}
         {tab === 'leaves' && <Leaves {...props} />}
         {tab === 'people' && <People {...props} />}
         {tab === 'import' && <Excel {...props} />}

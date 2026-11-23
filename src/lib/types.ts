@@ -83,7 +83,8 @@ export interface Person {
   leftAt: string | null;
 }
 
-export type AssignSource = 'auto' | 'manual' | 'sub' | 'move';
+/** out = 아웃소싱(일용직) 인력. 이때 personId 는 사람 표에 없는 `out:업체:성별:난수` 꼴이다 */
+export type AssignSource = 'auto' | 'manual' | 'sub' | 'move' | 'out';
 
 export interface Assignment {
   id: string;
@@ -165,6 +166,13 @@ export interface Message {
   at: string;
 }
 
+/** 아웃소싱(일용직) 업체 */
+export interface Agency {
+  id: string;
+  name: string;
+  phone: string;
+}
+
 export interface Settings {
   /** 요청 응답 기한(분) */
   expiryMin: number;
@@ -184,6 +192,10 @@ export interface Settings {
   carryExtraLines: number;
   /** 데모 시계: 실제 시각에 더하는 분 */
   clockOffsetMin: number;
+  /** 아웃소싱(일용직) 업체 목록 */
+  agencies: Agency[];
+  /** 확정된 주간 생산계획. `공장id|그 주 금요일` → true (없으면 임시) */
+  planWeeks: Record<string, boolean>;
 }
 
 export interface State {

@@ -11,6 +11,7 @@ export default function Master({ act, refresh, say }: TabProps) {
   const [prod, setProd] = useState<Any>(null);
   const [post, setPost] = useState<Any>(null);
   const [std, setStd] = useState<Any>({ postId: '', productId: '', need: 1, gender: '' });
+  const [agency, setAgency] = useState<Any>(null);
 
   useEffect(() => {
     get('/api/admin/master').then((r) => { setD(r); setFactory((f) => f || r.factories[0]?.id || ''); }).catch((e) => say(e.message, true));
@@ -113,6 +114,36 @@ export default function Master({ act, refresh, say }: TabProps) {
         </table>
       </div>
 
+      <h2 style={{ fontSize: 17, margin: '24px 0 4px' }}>아웃소싱 업체 <span className="muted" style={{ fontSize: 13, fontWeight: 500 }}>일용직 인원을 요청하는 곳</span></h2>
+      <p className="muted" style={{ margin: '0 0 10px', fontSize: 13 }}>배치표에는 「업체명-남」「업체명-여」로 적힙니다. 전화번호를 적어 두면 배치 화면에서 바로 문자를 보낼 수 있습니다.</p>
+      <div className="table-scroll" style={{ maxWidth: 560 }}>
+        <table className="grid">
+          <thead><tr><th>업체 이름</th><th>전화 (문자 받을 번호)</th><th style={{ width: 130 }} /></tr></thead>
+          <tbody>
+            {d.settings.agencies.map((ag: Any) => (
+              <tr key={ag.id}>
+                <td><strong>{ag.name}</strong></td><td>{ag.phone || '-'}</td>
+                <td>
+                  <span style={{ display: 'flex', gap: 6 }}>
+                    <button className="btn btn-sm" onClick={() => setAgency(ag)}>수정</button>
+                    <button className="btn btn-sm danger-text" onClick={() => confirm(`${ag.name} 업체를 지울까요?`) && void act({ type: 'agencyDelete', id: ag.id })}>지우기</button>
+                  </span>
+                </td>
+              </tr>
+            ))}
+            {!d.settings.agencies.length && <tr><td colSpan={3} className="muted" style={{ textAlign: 'center', padding: 20 }}>등록한 업체가 없습니다.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+      <button className="btn" style={{ marginTop: 10 }} onClick={() => setAgency({ name: '', phone: '' })}>업체 추가</button>
+
+      {agency && (
+        <Dialog title={agency.id ? `${agency.name} 수정` : '아웃소싱 업체 추가'} onClose={() => setAgency(null)}
+          onSave={async () => { if (await act({ type: 'agencySave', ...agency })) setAgency(null); }}>
+          <label>업체 이름<input value={agency.name} onChange={(e) => setAgency({ ...agency, name: e.target.value })} autoFocus={!agency.id} /></label>
+          <label>전화<input value={agency.phone} onChange={(e) => setAgency({ ...agency, phone: e.target.value })} placeholder="010-0000-0000" /></label>
+        </Dialog>
+      )}
       {prod && (
         <Dialog title={prod.id ? `${prod.name} 수정` : '제품 추가'} onClose={() => setProd(null)}
           onSave={async () => { if (await act({ type: 'productSave', ...prod })) setProd(null); }}>

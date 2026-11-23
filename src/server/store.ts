@@ -45,13 +45,15 @@ function makeBackend(): Backend {
   const env = (v: string | undefined) => (v ?? '').trim().replace(/^["']|["']$/g, '');
   const url = env(process.env.SUPABASE_URL) || env(process.env.NEXT_PUBLIC_SUPABASE_URL);
   const key = env(process.env.SUPABASE_SERVICE_ROLE_KEY);
-  if (url && key) return supabaseBackend(httpTransport(url, key));
-  if (process.env.VERCEL) {
+  // STORAGE=local 이면 Supabase 설정이 있어도 이 컴퓨터의 파일에 저장한다(공용 데이터를 건드리지 않고 시험할 때)
+  const local = (process.env.STORAGE ?? '').toLowerCase() === 'local';
+  if (url && key && !local) return supabaseBackend(httpTransport(url, key));
+  if (process.env.VERCEL && !local) {
     // Vercel에는 파일을 저장할 곳이 없어 로컬 파일로 돌아갈 수 없다.
     const missing = [!url && 'SUPABASE_URL', !key && 'SUPABASE_SERVICE_ROLE_KEY'].filter(Boolean).join(', ');
     throw new StoreError(`Vercel 환경 변수 ${missing} 이(가) 없습니다. Settings → Environment Variables 에 넣고 다시 배포(Redeploy)하세요.`);
   }
-  if (url && !key) {
+  if (url && !key && !local) {
     G.note = 'SUPABASE_SERVICE_ROLE_KEY 가 비어 있어 로컬 파일(data/saehan.db)에 저장하고 있습니다.';
     console.warn(`[${APP_NAME}] ${G.note}`);
   }

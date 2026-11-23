@@ -1,10 +1,11 @@
 'use client';
-// 배치 화면: 공장·교대·날짜 선택, 요약, 라인별 생산계획과 배치, 자동 배치·확정, 결근 카드와 대체 인력 추천.
+// 배치 화면: 공장·교대·날짜 선택, 요약, 라인별 생산계획과 배치, 자동 배치·확정, 결근 카드와 대체 인력 추천,
+// 아웃소싱(일용직) 인원 요청과 업체에 보낼 문자.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { get, qs, type Any } from '../client';
 import type { TabProps } from './page';
-import { FLAG_LABEL, KIND_LABEL, REPORTER_LABEL, md } from '@/lib/labels';
-import { addDays } from '@/lib/dates';
+import { COMPANY_NAME, FLAG_LABEL, KIND_LABEL, LINE_ROLE, OUT_JOB, REPORTER_LABEL, WEEKDAY, md } from '@/lib/labels';
+import { addDays, dow } from '@/lib/dates';
 
 const hhmm = (isoStr: string) => new Date(Date.parse(isoStr) + 9 * 3600000).toISOString().slice(11, 16);
 const KIND_TEXT: Record<string, string> = { standby: '대기', off: '휴무', other: '휴무' };
@@ -12,11 +13,32 @@ const REQ_TEXT: Record<string, string> = { sent: '응답 대기', accepted: '수
 const WHY: Record<string, string> = { exp: '업무 경험', product: '같은 제품' };
 const EXCEPTIONS: [string, string][] = [['absent', '결근'], ['sick', '병가'], ['early', '조퇴'], ['late', '지각']];
 const ORDER: Record<string, number> = { failed: 0, decided: 1, 'in-progress': 2, 'pre-board': 2, resolved: 3 };
+/** 그 자리에 요청할 일용직 구분: 품질검사원 자리는 여, 그 밖은 남 */
+const outGender = (role: string): 'M' | 'F' => (role === LINE_ROLE ? 'F' : 'M');
 
-export default function Board({ act, refresh, say, onPending }: TabProps & { onPending: (n: number) => void }) {
+async function copyText(text: string) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    // 권한이 없는 브라우저에서는 임시 입력 칸으로 복사한다
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand('copy');
+    ta.remove();
+    return ok;
+  }
+}
+
+export default function Board({ act, refresh, say, go, onPending }: TabProps & { onPending: (n: number) => void }) {
   const [q, setQ] = useState<{ factory?: string; date?: string; shift?: string } | null>(null);
   const [d, setD] = useState<Any>(null);
   const [pick, setPick] = useState<Any>(null);
+  const [fill, setFill] = useState(false);
   const [, setTick] = useState(0);
   const fetchedAt = useRef(0);
 
@@ -58,14 +80,18 @@ export default function Board({ act, refresh, say, onPending }: TabProps & { onP
 
   const rows = d.rows.filter((r: Any) => !r.unmanned);
   const { need, present, diff } = d.summary;
+  const vacancies = rows.reduce((n: number, r: Any) => n + r.vacancies, 0);
   const absences = d.absences
     .filter((a: Any) => a.status !== 'not-needed')
     .sort((a: Any, b: Any) => (ORDER[a.status] ?? 9) - (ORDER[b.status] ?? 9) || (a.createdAt < b.createdAt ? 1 : -1));
   const open = absences.filter((a: Any) => a.status !== 'resolved').length;
+  const shiftText = d.shift === 'day' ? '주간' : '야간';
+  const factoryName = d.factories.find((f: Any) => f.id === d.factoryId)?.name ?? '';
+  const pname = (id: string | null) => d.products.find((p: Any) => p.id === id)?.name ?? '';
 
-  // 오늘 출근한 사람(자리에 있는 사람 + 대기)
+  // 오늘 출근한 사람(자리에 있는 사람 + 대기). 아웃소싱 인력은 누구인지 정해지지 않아 뺀다.
   const everyone = [
-    ...d.rows.flatMap((r: Any) => r.assigned.map((a: Any) => ({ id: a.personId, name: a.name, role: a.role, at: r.code }))),
+    ...d.rows.flatMap((r: Any) => r.assigned.filter((a: Any) => !a.out).map((a: Any) => ({ id: a.personId, name: a.name, role: a.role, at: r.code }))),
     ...d.standby.map((p: Any) => ({ id: p.personId, name: p.name, role: p.role, at: '' })),
   ];
 
@@ -74,6 +100,18 @@ export default function Board({ act, refresh, say, onPending }: TabProps & { onP
     productId: value === 'off' ? row.productId : value || null,
     status: value === 'off' ? 'off' : 'run',
   });
+  const setNeed = (row: Any, n: number) => act({ type: 'needSet', postId: row.postId, productId: row.productId, need: Math.max(0, n) });
+
+  /** 배치표를 글로 만든다(메신저·문자에 붙여 넣기 좋게) */
+  const boardText = () => [
+    `[${COMPANY_NAME}] ${factoryName} ${md(d.date)}(${WEEKDAY[dow(d.date)]}) ${shiftText} ${d.times.start}~${d.times.end} 배치표`,
+    ...rows.filter((r: Any) => r.status !== 'off' && (r.need > 0 || r.assigned.length > 0)).map((r: Any) => {
+      const people = [...r.assigned.map((a: Any) => a.name), ...Array.from({ length: r.vacancies }, () => '(빈자리)')].join(', ');
+      const product = r.kind === 'line' && pname(r.productId) ? ` [${pname(r.productId)}]` : '';
+      return `${r.code}${r.kind === 'line' ? '' : ` ${r.name}`}${product}: ${people || '-'}`;
+    }),
+    ...(d.standby.length ? [`대기: ${d.standby.map((p: Any) => p.name).join(', ')}`] : []),
+  ].join('\n');
 
   return (
     <div style={{ maxWidth: 1100 }}>
@@ -91,6 +129,14 @@ export default function Board({ act, refresh, say, onPending }: TabProps & { onP
         <input type="date" value={d.date} onChange={(e) => e.target.value && sel({ date: e.target.value })} aria-label="날짜"
           style={{ padding: '5px 8px', borderRadius: 8, border: '1px solid var(--border)' }} />
         <button className="btn btn-sm" onClick={() => sel({ date: addDays(d.date, 1) })}>다음 날</button>
+        <span className="muted" style={{ fontSize: 13 }}>{d.times.start}~{d.times.end}</span>
+        <span style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
+          <button className={`badge ${d.planFinal ? 'badge-ok' : 'badge-warn'} badge-btn`} title="주 단위 생산계획 보기" onClick={() => go('plan')}>
+            이번 주 생산계획 {d.planFinal ? '확정' : '임시'}
+          </button>
+          <button className="btn btn-sm" disabled={!d.hasAssignments}
+            onClick={async () => say((await copyText(boardText())) ? '배치표를 복사했습니다. 메신저나 문자에 붙여 넣으세요.' : '복사하지 못했습니다.')}>배치표 복사</button>
+        </span>
       </div>
 
       <div className="card big-summary" style={{ marginBottom: 14 }}>
@@ -110,12 +156,19 @@ export default function Board({ act, refresh, say, onPending }: TabProps & { onP
         </div>
       </div>
 
+      {d.hasAssignments && vacancies > 0 && (
+        <div className="card out-bar">
+          <span><strong>빈자리 {vacancies}곳</strong> — 먼저 빈자리를 눌러 쉬는 사람에게 연락하고, 그래도 모자라면 아웃소싱 업체에 요청하세요.</span>
+          <button className="btn" onClick={() => setFill(true)}>남은 빈자리 아웃소싱 요청</button>
+        </div>
+      )}
+
       <table className="grid board">
         <thead>
           <tr>
             <th style={{ width: 150 }}>라인</th>
             <th style={{ width: 200 }}>생산계획 (제품)</th>
-            <th style={{ width: 60 }}>필요</th>
+            <th style={{ width: 96 }}>필요</th>
             <th>배치</th>
           </tr>
         </thead>
@@ -135,10 +188,18 @@ export default function Board({ act, refresh, say, onPending }: TabProps & { onP
                     </select>
                   ) : <span className="muted">{r.role}</span>}
                 </td>
-                <td className="c-need">{r.need}<span className="c-need-unit">명 필요</span></td>
+                <td className="c-need">
+                  {off ? <span className="muted">-</span> : (
+                    <span className="need-step" title={r.kind === 'line' ? '이 라인에서 이 제품을 만들 때 필요한 인원입니다. 바꾸면 기억합니다. (0명 = 옆 라인 담당자가 함께 봄)' : '이 자리의 기본 인원입니다.'}>
+                      <button aria-label={`${r.code} 필요 인원 줄이기`} disabled={r.need <= 0} onClick={() => setNeed(r, r.need - 1)}>−</button>
+                      <span>{r.need}<span className="c-need-unit">명 필요</span></span>
+                      <button aria-label={`${r.code} 필요 인원 늘리기`} onClick={() => setNeed(r, r.need + 1)}>+</button>
+                    </span>
+                  )}
+                </td>
                 <td className="c-people">
                   {r.assigned.map((a: Any) => (
-                    <button key={a.id} className={`slot ${a.source === 'sub' || a.source === 'move' ? 'sub' : a.locked ? 'locked' : ''}`}
+                    <button key={a.id} className={`slot ${a.out ? 'out' : a.source === 'sub' || a.source === 'move' ? 'sub' : a.locked ? 'locked' : ''}`}
                       title={[a.reason, ...a.flags.map((f: string) => FLAG_LABEL[f] ?? f)].filter(Boolean).join(' · ')}
                       onClick={() => setPick({ a, row: r })}>{a.name}</button>
                   ))}
@@ -156,16 +217,81 @@ export default function Board({ act, refresh, say, onPending }: TabProps & { onP
         대기 {d.standby.length}명{d.standby.length ? `: ${d.standby.map((p: Any) => p.name).join(', ')}` : ''} · 이름을 누르면 결근·병가·조퇴·지각을 등록하고 대체 인력을 추천받을 수 있어요. 빈자리를 누르면 넣을 사람을 추천합니다.
       </p>
 
+      {d.outsourcing.length > 0 && (
+        <div style={{ marginTop: 16 }}>
+          <h2 style={{ fontSize: 17, marginBottom: 8 }}>아웃소싱 인원 요청 <span className="muted" style={{ fontSize: 13, fontWeight: 500 }}>업체에 문자로 보낼 내용</span></h2>
+          {d.outsourcing.map((o: Any) => (
+            <div key={o.agencyId} className="card out-card">
+              <div className="abs-head">
+                <strong>{o.name}</strong>
+                <span>{[o.male ? `${OUT_JOB.M} ${o.male}명` : '', o.female ? `${OUT_JOB.F} ${o.female}명` : ''].filter(Boolean).join(' · ')}</span>
+                <span className="muted">합계 {o.total}명</span>
+                <span style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+                  <button className="btn btn-sm btn-primary" onClick={async () => say((await copyText(o.text)) ? '문자 내용을 복사했습니다.' : '복사하지 못했습니다.')}>문자 내용 복사</button>
+                  {o.phone && <a className="btn btn-sm" href={`sms:${o.phone}?body=${encodeURIComponent(o.text)}`}>문자 보내기</a>}
+                </span>
+              </div>
+              <pre className="out-text">{o.text}</pre>
+            </div>
+          ))}
+        </div>
+      )}
+
       {absences.length > 0 && (
         <div style={{ marginTop: 16 }}>
           <h2 style={{ fontSize: 17, marginBottom: 8 }}>
             결근 · 예외 상황 {open > 0 && <span className="badge badge-danger">대체 필요 {open}</span>}
           </h2>
-          {absences.map((a: Any) => <AbsenceCard key={a.id} a={a} act={act} minsLeft={minsLeft} />)}
+          {absences.map((a: Any) => (
+            <AbsenceCard key={a.id} a={a} d={d} act={act} minsLeft={minsLeft}
+              role={d.rows.find((r: Any) => r.postId === a.postId)?.role ?? LINE_ROLE} />
+          ))}
         </div>
       )}
 
       {pick && <PickDialog d={d} pick={pick} everyone={everyone} act={act} say={say} minsLeft={minsLeft} onClose={() => setPick(null)} />}
+      {fill && (
+        <div className="popover" onClick={() => setFill(false)}>
+          <div className="card" onClick={(e) => e.stopPropagation()}>
+            <h3 style={{ marginBottom: 6 }}>남은 빈자리 {vacancies}곳 아웃소싱 요청</h3>
+            <p className="muted" style={{ margin: '0 0 12px', fontSize: 13 }}>
+              업체를 고르면 빈자리가 「업체명-남」「업체명-여」로 채워지고, 업체에 보낼 문자 내용이 만들어집니다. 품질검사원 자리는 여, 운반·박스 등은 남으로 요청합니다.
+            </p>
+            <OutPick agencies={d.agencies} act={act} onPick={async (agencyId) => {
+              if (await act({ type: 'fillOutsource', ...key, agencyId }, '아웃소싱 인원으로 채웠습니다. 아래 문자 내용을 업체에 보내세요.')) setFill(false);
+            }} />
+            <div style={{ display: 'flex', marginTop: 14, justifyContent: 'flex-end' }}>
+              <button className="btn" onClick={() => setFill(false)}>닫기</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** 아웃소싱 업체 고르기. 업체가 없으면 그 자리에서 이름을 적어 등록한다. */
+function OutPick({ agencies, gender, act, onPick }: { agencies: Any[]; gender?: 'M' | 'F'; act: TabProps['act']; onPick: (agencyId: string) => void }) {
+  const [name, setName] = useState('');
+  const [adding, setAdding] = useState(false);
+  const tail = gender ? `-${gender === 'M' ? '남' : '여'}` : '';
+  return (
+    <div className="out-pick">
+      {agencies.map((ag) => (
+        <button key={ag.id} className="btn btn-sm" onClick={() => onPick(ag.id)}>{ag.name}{tail}</button>
+      ))}
+      {adding || !agencies.length ? (
+        <form className="inline-form" onSubmit={async (e) => {
+          e.preventDefault();
+          if (!name.trim()) return;
+          if (await act({ type: 'agencySave', name })) { setName(''); setAdding(false); }
+        }}>
+          <input placeholder="업체 이름" value={name} onChange={(e) => setName(e.target.value)} aria-label="아웃소싱 업체 이름" style={{ width: 140 }} />
+          <button className="btn btn-sm">업체 등록</button>
+        </form>
+      ) : (
+        <button className="btn btn-sm rec-more" onClick={() => setAdding(true)}>+ 다른 업체</button>
+      )}
     </div>
   );
 }
@@ -186,12 +312,13 @@ function Recs({ recs, requests, minsLeft, onAssign, onRequest }: {
 
   return (
     <div className="recs">
+      <div className="muted rec-rule">쉬는 사람 중 이번 달 근무일수가 적은 순서입니다. 전화로 확인한 뒤 「배치」를 누르세요.</div>
       {shown.map((c) => {
         const i = recs.indexOf(c);
         const req = reqOf(c.personId);
         const other = c.reasons.find((x: string) => !WHY[x]);
         const kind = c.type === 'standby' ? 'standby' : other ? 'other' : 'off';
-        const why = c.reasons.map((x: string) => WHY[x] ?? x);
+        const why = [`이번 달 ${c.monthDays}일 근무`, ...c.reasons.map((x: string) => WHY[x] ?? x)];
         const warn = c.cautions[0] ? FLAG_LABEL[c.cautions[0]] ?? c.cautions[0] : '';
         return (
           <div key={c.personId} className={`rec ${i === 0 ? 'top' : ''}`}>
@@ -206,10 +333,13 @@ function Recs({ recs, requests, minsLeft, onAssign, onRequest }: {
                   </span>
                 )}
               </div>
-              {(why.length > 0 || warn) && (
-                <div className="rec-why">
-                  {why.join(' · ')}
-                  {warn && <span className="rec-warn">{why.length > 0 && ' · '}⚠ {warn}</span>}
+              <div className="rec-why">
+                {why.join(' · ')}
+                {warn && <span className="rec-warn"> · ⚠ {warn}</span>}
+              </div>
+              {c.type !== 'standby' && (
+                <div className="rec-phone">
+                  {c.phone ? <a href={`tel:${c.phone.replace(/[^0-9+]/g, '')}`}>☎ {c.phone}</a> : <span className="rec-warn">연락처 없음 — 근로자 관리에서 입력하세요</span>}
                 </div>
               )}
             </div>
@@ -218,7 +348,7 @@ function Recs({ recs, requests, minsLeft, onAssign, onRequest }: {
                 <button className="btn btn-primary btn-sm" onClick={() => onAssign(c.personId)}>바로 배치</button>
               ) : (
                 <>
-                  {onRequest && req?.status !== 'sent' && <button className="btn btn-sm" onClick={() => onRequest([c.personId])}>요청</button>}
+                  {onRequest && req?.status !== 'sent' && <button className="btn btn-sm" title="근무자 화면으로 요청을 보냅니다" onClick={() => onRequest([c.personId])}>요청</button>}
                   <button className="btn btn-sm" title="전화 등으로 본인 확인을 했을 때"
                     onClick={() => confirm(`${c.name} 님을 이 자리에 넣을까요? (본인 확인 후)`) && onAssign(c.personId)}>배치</button>
                 </>
@@ -235,7 +365,7 @@ function Recs({ recs, requests, minsLeft, onAssign, onRequest }: {
   );
 }
 
-function AbsenceCard({ a, act, minsLeft }: { a: Any; act: TabProps['act']; minsLeft: (e: string) => number }) {
+function AbsenceCard({ a, d, role, act, minsLeft }: { a: Any; d: Any; role: string; act: TabProps['act']; minsLeft: (e: string) => number }) {
   const head = (
     <div className="abs-head">
       <strong>{a.postCode ? `${a.postCode} ${a.postName}` : '자리 없음'}</strong>
@@ -266,10 +396,13 @@ function AbsenceCard({ a, act, minsLeft }: { a: Any; act: TabProps['act']; minsL
   return (
     <div className={`card abs-card ${a.status}`}>
       {head}
-      <div className="abs-state">{a.status === 'in-progress' ? '대체 요청을 보냈습니다. 먼저 수락한 사람이 들어갑니다.' : '대체 인력 추천'}</div>
+      <div className="abs-state">{a.status === 'in-progress' ? '대체 요청을 보냈습니다. 먼저 수락한 사람이 들어갑니다.' : '① 쉬는 사람에게 먼저 연락'}</div>
       <Recs recs={a.candidates} requests={a.requests} minsLeft={minsLeft}
         onAssign={(id) => void act({ type: 'placeAbsence', absenceId: a.id, personId: id })}
         onRequest={(ids) => void act({ type: 'request', absenceId: a.id, personIds: ids })} />
+      <div className="abs-state">② 그래도 없으면 아웃소싱 업체에 요청</div>
+      <OutPick agencies={d.agencies} gender={outGender(role)} act={act}
+        onPick={(agencyId) => void act({ type: 'placeOutsource', factoryId: d.factoryId, date: d.date, shift: d.shift, postId: a.postId, agencyId })} />
     </div>
   );
 }
@@ -304,7 +437,11 @@ function PickDialog({ d, pick, everyone, act, say, minsLeft, onClose }: {
           {row.code} {a ? `· ${a.name}` : '· 빈자리'}{' '}
           <span className="muted" style={{ fontSize: 13, fontWeight: 500 }}>{md(d.date)} {d.shift === 'day' ? '주간' : '야간'}</span>
         </h3>
-        {a ? (
+        {a?.out ? (
+          <p className="muted" style={{ margin: '0 0 4px', fontSize: 14 }}>
+            아웃소싱 업체에 요청한 자리입니다. 업체에서 오는 분이 이 자리에 섭니다. 직원이 대신 설 수 있게 되면 아래에서 바꾸거나 자리에서 빼세요.
+          </p>
+        ) : a ? (
           <>
             <div className="dlg-label">예외 상황 등록 → 대체 인력 추천</div>
             <div className="exc-grid">
@@ -318,18 +455,27 @@ function PickDialog({ d, pick, everyone, act, say, minsLeft, onClose }: {
           </>
         ) : (
           <>
-            <div className="dlg-label">이 자리에 넣을 사람 추천</div>
+            <div className="dlg-label">① 이 자리에 넣을 사람 추천</div>
             {recs === null ? <div className="muted rec-empty">불러오는 중…</div> : <Recs recs={recs} requests={[]} minsLeft={minsLeft} onAssign={place} />}
+            <div className="dlg-label" style={{ marginTop: 14 }}>② 그래도 없으면 아웃소싱 업체에 요청</div>
+            <OutPick agencies={d.agencies} gender={outGender(row.role)} act={act} onPick={async (agencyId) => {
+              if (await act({ type: 'placeOutsource', ...key, postId: row.postId, agencyId })) onClose();
+            }} />
           </>
         )}
         <div className="dlg-label" style={{ marginTop: 14 }}>{a ? '다른 사람으로 바꾸기' : '오늘 출근한 사람 중에서 직접 고르기'}</div>
         <select value={value} onChange={(e) => setValue(e.target.value)} style={{ width: '100%', padding: 8, borderRadius: 8 }} aria-label="사람 고르기">
           <option value="">선택…</option>
-          {others.map((p) => (
+          {others.filter((p) => !a?.out || !p.at).map((p) => (
             <option key={p.id} value={p.id}>{p.name} · {p.role}{p.at ? ` (지금 ${p.at} — 맞바꿈)` : ' (대기)'}</option>
           ))}
         </select>
         <div style={{ display: 'flex', gap: 8, marginTop: 14, justifyContent: 'flex-end' }}>
+          {a && (
+            <button className="btn danger-text" style={{ marginRight: 'auto' }} onClick={async () => {
+              if (await act({ type: 'unassign', assignmentId: a.id })) onClose();
+            }}>자리에서 빼기</button>
+          )}
           <button className="btn" onClick={onClose}>닫기</button>
           <button className="btn btn-primary" disabled={!value} onClick={async () => {
             if (a) { await act({ type: 'replace', assignmentId: a.id, personId: value }); onClose(); } else await place(value);

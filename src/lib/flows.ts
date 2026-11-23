@@ -4,7 +4,8 @@ import type {
   Absence, AbsenceKind, Assignment, AssignSource, Board, LeaveRequest, Message, Person, Shift, State, SubRequest,
 } from './types';
 import {
-  boardId, cannotWorkExtra, dutyOn, effectivePlan, ix, mkAssignment, needs, planAssign, scheduledShift, touch, uid,
+  boardId, cannotWorkExtra, dutyOn, effectivePlan, isOut, ix, mkAssignment, needs, outGender, outId, outInfo,
+  planAssign, scheduledShift, touch, uid,
 } from './engine';
 import { iso } from './dates';
 import { KIND_LABEL, SHIFT_LABEL } from './labels';
@@ -115,7 +116,7 @@ export function confirmBoard(s: State, factoryId: string, date: string, shift: S
   const list = I.asgBoard.get(board.id) ?? [];
   for (const a of list) {
     if (!a.counted) countExp(s, a, 1);
-    if (was !== 'confirmed') {
+    if (was !== 'confirmed' && !isOut(a.personId)) {
       const post = I.post.get(a.postId);
       notify(s, a.personId, `오늘 근무: ${date} ${SHIFT_LABEL[shift]} · ${post?.code ?? ''} ${post?.name ?? ''}`, 'push', now);
     }
@@ -156,11 +157,12 @@ export function replaceAssignment(s: State, assignmentId: string, newPersonId: s
   if (a.personId === newPersonId) return;
   const np = person(s, newPersonId);
   if (!np.active) throw new FlowError('퇴사 처리된 근무자입니다.');
-  const old = person(s, a.personId);
+  const old = ix(s).person.get(a.personId);
   const other = ix(s).asgPD.get(`${np.id}|${a.date}`)?.[0];
   const rowA = rowFor(s, a.factoryId, a.date, a.shift, a.postId);
   if (other) {
     if (other.shift !== a.shift || other.factoryId !== a.factoryId) throw new FlowError('이미 같은 날 다른 배치표에 들어가 있습니다.');
+    if (!old) throw new FlowError('아웃소싱 자리는 맞바꿀 수 없습니다. 자리에 없는 사람을 고르거나 먼저 빼 주세요.');
     const rowB = rowFor(s, other.factoryId, other.date, other.shift, other.postId);
     delAsg(s, a.id);
     delAsg(s, other.id);
@@ -251,7 +253,7 @@ function openAbsence(s: State, absenceId: string): Absence {
   return ab;
 }
 
-function resolve(s: State, ab: Absence, p: Person, now: number) {
+function resolve(s: State, ab: Absence, p: { id: string; name: string }, now: number) {
   ab.status = 'resolved';
   ab.resolvedPersonId = p.id;
   ab.resolvedAt = iso(now);
@@ -278,6 +280,48 @@ export function placeForAbsence(s: State, absenceId: string, personId: string, n
   const mine = s.requests.find((r) => r.absenceId === ab.id && r.personId === p.id && r.status === 'sent');
   if (mine) { mine.status = 'accepted'; mine.respondedAt = iso(now); }
   resolve(s, ab, p, now);
+}
+
+// ───────────── 아웃소싱(일용직) 인력 ─────────────
+// 내부(쉬는 사람)로 못 채운 자리는 업체에 인원수만 요청한다. 배치표에는 「업체명-남」「업체명-여」로 적는다.
+
+function agencyOf(s: State, agencyId: string) {
+  const ag = s.settings.agencies.find((x) => x.id === agencyId);
+  if (!ag) throw new FlowError('아웃소싱 업체를 먼저 등록하세요.');
+  return ag;
+}
+
+/** 빈자리 하나를 아웃소싱 인력으로 채운다. 그 자리의 열린 결근이 있으면 해결로 닫는다. */
+export function placeOutsource(
+  s: State, o: { factoryId: string; date: string; shift: Shift; postId: string; agencyId: string }, now: number,
+) {
+  const ag = agencyOf(s, o.agencyId);
+  const row = rowFor(s, o.factoryId, o.date, o.shift, o.postId);
+  const board = getBoard(s, o.date, o.shift, o.factoryId);
+  const here = (ix(s).asgBoard.get(board.id) ?? []).filter((a) => a.postId === o.postId).length;
+  if (here >= row.need) throw new FlowError('이 자리는 이미 다 찼습니다.');
+  const a: Assignment = {
+    id: uid('as'), date: o.date, shift: o.shift, factoryId: o.factoryId, postId: o.postId,
+    personId: outId(ag.id, outGender(row.post)), source: 'out', locked: true, reason: '아웃소싱', flags: [],
+    counted: false, createdAt: iso(now),
+  };
+  s.assignments.push(a);
+  touch(s);
+  const ab = s.absences.find((x) => x.date === o.date && x.shift === o.shift && x.factoryId === o.factoryId
+    && x.postId === o.postId && (x.status === 'decided' || x.status === 'in-progress'));
+  if (ab) resolve(s, ab, { id: a.personId, name: outInfo(s, a.personId).name }, now);
+  return a;
+}
+
+/** 그 교대의 남은 빈자리를 모두 한 업체의 아웃소싱 인력으로 채운다. 채운 수를 돌려준다. */
+export function fillOutsource(s: State, o: { factoryId: string; date: string; shift: Shift; agencyId: string }, now: number) {
+  agencyOf(s, o.agencyId);
+  let n = 0;
+  for (const row of needs(s, o.factoryId, o.date, o.shift)) {
+    const here = (ix(s).asgBoard.get(boardId(o.date, o.shift, o.factoryId)) ?? []).filter((a) => a.postId === row.post.id).length;
+    for (let i = here; i < row.need; i++) { placeOutsource(s, { ...o, postId: row.post.id }, now); n++; }
+  }
+  return n;
 }
 
 /** 쉬는 사람에게 「요청」 — 여러 명에게 동시에 보낼 수 있다. */

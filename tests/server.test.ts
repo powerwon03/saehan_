@@ -133,7 +133,7 @@ describe('근무자 권한', () => {
   it('교대가 시작된 뒤에는 결근 신고를 받지 않는다', async () => {
     await mutate(DEMO_COMPANY, (s, now) => {
       const a = s.assignments.find((x) => x.postId === 'f1-L4')!;
-      const late = seoulMs(seoul(now).date, '08:00'); // 주간 교대(07:00)가 시작된 뒤
+      const late = seoulMs(seoul(now).date, '09:00'); // 주간 교대(08:00)가 시작된 뒤
       expect(workerView(s, late, a.personId)!.today.canReport).toBe(false);
       expect(() => workerAction(s, late, a.personId, { type: 'report' })).toThrow('이미 시작');
     });

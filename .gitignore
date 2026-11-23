@@ -6,3 +6,4 @@ data/
 *.tsbuildinfo
 next-env.d.ts
 .next-build/
+.next-verify/

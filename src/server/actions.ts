@@ -1,12 +1,12 @@
 // 관리자·근무자가 보낼 수 있는 동작. 입력을 확인한 뒤 업무 흐름(flows)을 부른다.
 import type { AbsenceKind, Crew, Gender, Lang, Person, Post, Shift, State } from '@/lib/types';
-import { ix, touch, uid } from '@/lib/engine';
+import { effectivePlan, ix, touch, uid } from '@/lib/engine';
 import {
-  autoAssign, cancelAbsence, cancelLeave, confirmBoard, decideLeave, FlowError, placeForAbsence, placeManual,
-  replaceAssignment, reportAbsence, requestLeave, respondRequest, sendRequests, setPlan, unassign,
+  autoAssign, cancelAbsence, cancelLeave, confirmBoard, decideLeave, fillOutsource, FlowError, placeForAbsence, placeManual,
+  placeOutsource, replaceAssignment, reportAbsence, requestLeave, respondRequest, sendRequests, setPlan, unassign,
 } from '@/lib/flows';
 import { validPattern } from '@/lib/calendar';
-import { addDays, isDate, seoul } from '@/lib/dates';
+import { addDays, dow, isDate, planWeekShifts, seoul } from '@/lib/dates';
 import { LINE_ROLE, ROLES } from '@/lib/labels';
 import { LANGS } from '@/lib/i18n';
 import { currentDuty, shiftStartMs } from './views';
@@ -249,6 +249,38 @@ function saveStandard(s: State, a: A) {
 
 const TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
 
+/** 필요 인원 고치기. 라인은 「이 라인에서 이 제품을 만들 때」의 기준으로 기억하고, 고정 자리는 기본 인원을 바꾼다. */
+function setNeed(s: State, a: A) {
+  const post = ix(s).post.get(str(a.postId));
+  if (!post) throw new FlowError('자리를 확인하세요.');
+  const need = int(a.need, 0, 20);
+  if (post.kind === 'fixed') { post.defaultNeed = need; return; }
+  const productId = str(a.productId) || null;
+  if (productId && !ix(s).product.has(productId)) throw new FlowError('제품을 확인하세요.');
+  const cur = s.standards.find((x) => x.postId === post.id && x.productId === productId);
+  if (cur) cur.need = need;
+  else s.standards.push({ id: uid('st'), postId: post.id, productId, need, gender: '' });
+  touch(s);
+}
+
+function fridayOf(v: unknown): string {
+  const d = dateOf(v);
+  if (dow(d) !== 5) throw new FlowError('생산계획 주는 금요일에 시작합니다.');
+  return d;
+}
+
+function saveAgency(s: State, a: A) {
+  const name = str(a.name, 30);
+  if (!name) throw new FlowError('업체 이름을 입력하세요.');
+  const id = str(a.id);
+  if (s.settings.agencies.some((x) => x.name === name && x.id !== id)) throw new FlowError(`이미 있는 업체입니다: ${name}`);
+  const cur = s.settings.agencies.find((x) => x.id === id);
+  if (cur) { cur.name = name; cur.phone = str(a.phone, 20); return cur.id; }
+  const ag = { id: uid('ag').replace(/[^a-z0-9]/gi, ''), name, phone: str(a.phone, 20) };
+  s.settings.agencies = [...s.settings.agencies, ag];
+  return ag.id;
+}
+
 function saveSettings(s: State, a: A) {
   const v = (a.settings ?? {}) as A;
   const st = s.settings;
@@ -326,6 +358,50 @@ export function adminAction(s: State, now: number, a: A): unknown {
     case 'leaveDecide':
       decideLeave(s, str(a.id), bool(a.approve), now);
       return;
+
+    // 아웃소싱(일용직)
+    case 'agencySave':
+      return { id: saveAgency(s, a) };
+    case 'agencyDelete':
+      s.settings.agencies = s.settings.agencies.filter((x) => x.id !== a.id);
+      return;
+    case 'placeOutsource':
+      placeOutsource(s, { factoryId: factoryOf(s, a.factoryId), date: dateOf(a.date), shift: shiftOf(a.shift), postId: str(a.postId), agencyId: str(a.agencyId) }, now);
+      return;
+    case 'fillOutsource': {
+      const filled = fillOutsource(s, { factoryId: factoryOf(s, a.factoryId), date: dateOf(a.date), shift: shiftOf(a.shift), agencyId: str(a.agencyId) }, now);
+      if (!filled) throw new FlowError('채울 빈자리가 없습니다.');
+      return { filled };
+    }
+
+    // 필요 인원 · 주 단위 생산계획
+    case 'needSet': setNeed(s, a); return;
+    case 'planCells': {
+      const status = a.status === 'off' ? 'off' : 'run';
+      const cells = (Array.isArray(a.cells) ? a.cells : []).slice(0, 14) as A[];
+      const postId = str(a.postId);
+      const productId = str(a.productId) || null;
+      for (const c of cells) setPlan(s, { date: dateOf(c.date), shift: shiftOf(c.shift), postId, productId, status });
+      if (status === 'run' && a.need !== undefined && a.need !== null && a.need !== '') setNeed(s, { postId, productId, need: a.need });
+      return { saved: cells.length };
+    }
+    case 'planWeek': {
+      const key = `${factoryOf(s, a.factoryId)}|${fridayOf(a.week)}`;
+      const next = { ...s.settings.planWeeks };
+      if (bool(a.final)) next[key] = true; else delete next[key];
+      s.settings.planWeeks = next;
+      return;
+    }
+    case 'planCopy': {
+      // 지난주의 같은 요일·교대 계획을 이번 주에 그대로 적는다
+      const factoryId = factoryOf(s, a.factoryId);
+      const week = fridayOf(a.week);
+      const lines = s.posts.filter((p) => p.factoryId === factoryId && p.kind === 'line' && p.active && !p.unmanned);
+      const prev = planWeekShifts(addDays(week, -7));
+      const copies = planWeekShifts(week).flatMap((c, i) => lines.map((post) => ({ c, post, from: effectivePlan(s, post, prev[i].date, prev[i].shift) })));
+      for (const { c, post, from } of copies) setPlan(s, { date: c.date, shift: c.shift, postId: post.id, productId: from.productId, status: from.status });
+      return { saved: copies.length };
+    }
 
     case 'personSave':
       return { id: savePerson(s, a, today).id };

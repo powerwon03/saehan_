@@ -1,11 +1,11 @@
 // 화면에 내려 주는 데이터(읽기 전용). 근무자에게는 본인 데이터만 준다.
 import type { Person, Shift, State } from '@/lib/types';
 import {
-  boardId, dutyOn, ix, needs, recommend, scheduledShift, standbyPeople, weekHours,
+  boardId, dutyOn, effectivePlan, isOut, ix, needs, outInfo, personName, recommend, scheduledShift, standardFor, standbyPeople, weekHours,
 } from '@/lib/engine';
 import { crewsOn } from '@/lib/calendar';
-import { addDays, addMonths, daysInMonth, isDate, monthOf, seoul, seoulMs } from '@/lib/dates';
-import { KIND_SHORT } from '@/lib/labels';
+import { addDays, addMonths, daysInMonth, dow, isDate, monthOf, planWeekOf, planWeekShifts, seoul, seoulMs } from '@/lib/dates';
+import { COMPANY_NAME, KIND_SHORT, OUT_JOB, SHIFT_LABEL, WEEKDAY, md } from '@/lib/labels';
 import { pickDemoCast } from '@/lib/demo';
 
 const asShift = (v: unknown): Shift | null => (v === 'day' || v === 'night' ? v : null);
@@ -22,7 +22,8 @@ export const shiftStartMs = (s: State, date: string, shift: Shift) =>
 /** 관리자가 지금 볼 교대: 곧 시작하거나 진행 중인 교대 */
 export function defaultBoard(s: State, now: number): { date: string; shift: Shift } {
   const { date } = seoul(now);
-  const prep = 2 * 3600000;
+  // 배치표는 교대 3시간쯤 전(야간이면 17시경)에 나가므로 그때부터 다음 교대를 보여 준다
+  const prep = 3 * 3600000;
   if (now < shiftStartMs(s, date, 'day') - prep) return { date: addDays(date, -1), shift: 'night' };
   if (now < shiftStartMs(s, date, 'night') - prep) return { date, shift: 'day' };
   return { date, shift: 'night' };
@@ -39,7 +40,8 @@ export function boardView(s: State, now: number, q: { factoryId?: string; date?:
   const factory = I.factory.get(factoryId);
   const bid = boardId(date, shift, factoryId);
   const asg = I.asgBoard.get(bid) ?? [];
-  const name = (id: string | null) => (id ? I.person.get(id)?.name ?? '(삭제됨)' : '');
+  const name = (id: string | null) => personName(s, id);
+  const times = shiftTimes(s, shift);
 
   const rows = needs(s, factoryId, date, shift).map((r) => {
     const here = asg.filter((a) => a.postId === r.post.id).sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1));
@@ -47,8 +49,15 @@ export function boardView(s: State, now: number, q: { factoryId?: string; date?:
       postId: r.post.id, code: r.post.code, name: r.post.name, kind: r.post.kind, role: r.post.role,
       unmanned: r.post.unmanned, productId: r.productId, status: r.status, inherited: r.inherited, need: r.need,
       assigned: here.map((a) => {
+        if (isOut(a.personId)) {
+          return {
+            id: a.id, personId: a.personId, name: outInfo(s, a.personId).name, empNo: '', crew: '', role: '아웃소싱',
+            source: a.source, locked: a.locked, flags: a.flags, reason: a.reason, guest: '', out: true,
+          };
+        }
         const p = I.person.get(a.personId);
         return {
+          out: false,
           id: a.id, personId: a.personId, name: p?.name ?? '(삭제됨)', empNo: p?.empNo ?? '', crew: p?.crew ?? '',
           role: p?.role ?? '', source: a.source, locked: a.locked, flags: a.flags, reason: a.reason,
           guest: p && p.factoryId !== factoryId ? I.factory.get(p.factoryId)?.name ?? '' : '',
@@ -60,6 +69,21 @@ export function boardView(s: State, now: number, q: { factoryId?: string; date?:
   const standby = standbyPeople(s, factoryId, date, shift).map((p) => ({ personId: p.id, name: p.name, empNo: p.empNo, role: p.role, crew: p.crew }));
   const need = rows.reduce((n, r) => n + r.need, 0);
   const present = asg.length + standby.length;
+
+  // 아웃소싱 요청: 업체별 · 직무별 인원수와 업체에 보낼 문자 내용
+  const outsourcing = s.settings.agencies.map((ag) => {
+    const mine = asg.filter((a) => isOut(a.personId) && outInfo(s, a.personId).agencyId === ag.id);
+    const male = mine.filter((a) => outInfo(s, a.personId).gender === 'M').length;
+    const female = mine.length - male;
+    const lines = [
+      `[${COMPANY_NAME}] 인원 요청드립니다.`,
+      `${md(date)}(${WEEKDAY[dow(date)]}) ${SHIFT_LABEL[shift]} ${times.start}~${times.end} · ${factory?.name ?? ''}`,
+      ...(male ? [`${OUT_JOB.M} ${male}명`] : []),
+      ...(female ? [`${OUT_JOB.F} ${female}명`] : []),
+      `합계 ${mine.length}명`,
+    ];
+    return { agencyId: ag.id, name: ag.name, phone: ag.phone, male, female, total: mine.length, text: lines.join('\n') };
+  }).filter((x) => x.total > 0);
 
   const absences = s.absences
     .filter((a) => a.date === date && a.shift === shift && a.factoryId === factoryId)
@@ -85,7 +109,11 @@ export function boardView(s: State, now: number, q: { factoryId?: string; date?:
     today: seoul(now).date,
     nowIso: new Date(now).toISOString(),
     clock: seoul(now).time,
-    times: shiftTimes(s, shift),
+    times,
+    planWeek: planWeekOf(date, shift),
+    planFinal: !!s.settings.planWeeks[`${factoryId}|${planWeekOf(date, shift)}`],
+    agencies: s.settings.agencies,
+    outsourcing,
     crews: factory ? crewsOn(s.settings, factory, date, shift) : [],
     status: I.board.get(bid)?.status ?? 'draft',
     hasAssignments: asg.length > 0,
@@ -104,7 +132,7 @@ export function slotView(s: State, q: { factoryId: string; date: string; shift: 
   return {
     candidates: recommend(s, q),
     present: [
-      ...asg.filter((a) => a.postId !== q.postId).map((a) => {
+      ...asg.filter((a) => a.postId !== q.postId && !isOut(a.personId)).map((a) => {
         const p = I.person.get(a.personId);
         return { personId: a.personId, name: p?.name ?? '', empNo: p?.empNo ?? '', at: I.post.get(a.postId)?.code ?? '' };
       }),
@@ -124,6 +152,7 @@ export function peopleView(s: State, locked: string[], now: number) {
     posts: s.posts.filter((p) => p.active).sort((a, b) => a.sort - b.sort)
       .map((p) => ({ id: p.id, factoryId: p.factoryId, code: p.code, name: p.name, kind: p.kind, role: p.role, unmanned: p.unmanned })),
     locked,
+    agencies: s.settings.agencies,
     nextEmpNo: `${prefix}${(nums.length ? Math.max(...nums) : 240000) + 1}`,
     today: seoul(now).date,
   };
@@ -190,7 +219,55 @@ export function attendanceView(s: State, month: string) {
       cells, work, night, sub, missed, hours: work * s.settings.shiftHours,
     };
   }).filter((r) => r.active || r.work || r.missed);
-  return { month, days, rows };
+
+  // 아웃소싱 투입 현황: 날짜 · 교대 · 공장 · 업체별 인원
+  const out = new Map<string, { date: string; shift: Shift; factory: string; agency: string; male: number; female: number }>();
+  for (const a of s.assignments) {
+    if (!isOut(a.personId) || monthOf(a.date) !== month) continue;
+    const info = outInfo(s, a.personId);
+    const key = `${a.date}|${a.shift}|${a.factoryId}|${info.agencyId}`;
+    const row = out.get(key) ?? { date: a.date, shift: a.shift, factory: I.factory.get(a.factoryId)?.name ?? '', agency: info.agency?.name ?? '아웃소싱', male: 0, female: 0 };
+    if (info.gender === 'M') row.male++; else row.female++;
+    out.set(key, row);
+  }
+  const outsourced = [...out.values()].sort((a, b) => (a.date + a.shift + a.factory < b.date + b.shift + b.factory ? -1 : 1));
+  return { month, days, rows, outsourced };
+}
+
+// ───────────── 관리자: 주 단위 생산계획 ─────────────
+
+/** 금요일 야간 ~ 다음 금요일 주간(교대 14개)의 라인별 계획. 목요일에 임시로 세우고 금요일에 확정한다. */
+export function planView(s: State, now: number, q: { factoryId?: string; week?: string }) {
+  const I = ix(s);
+  const today = seoul(now).date;
+  const factoryId = q.factoryId && I.factory.has(q.factoryId) ? q.factoryId : s.factories[0]?.id ?? '';
+  const cur = planWeekOf(today, defaultBoard(s, now).shift);
+  const week = isDate(q.week) && dow(q.week) === 5 ? q.week : cur;
+  const shifts = planWeekShifts(week);
+  const explicit = new Set(s.plan.map((c) => c.id));
+  const lines = s.posts.filter((p) => p.factoryId === factoryId && p.kind === 'line' && p.active && !p.unmanned).sort((a, b) => a.sort - b.sort);
+  return {
+    factories: s.factories.map((f) => ({ id: f.id, name: f.name })),
+    factoryId, week, thisWeek: cur, today,
+    final: !!s.settings.planWeeks[`${factoryId}|${week}`],
+    shifts: shifts.map((c) => ({ ...c, weekday: WEEKDAY[dow(c.date)], past: c.date < today })),
+    products: s.products.filter((p) => p.active).map((p) => ({ id: p.id, code: p.code, name: p.name, urgent: p.urgent })),
+    // 라인 × 제품 → 필요 인원 (`라인id|제품id`, 제품 무관 기본값은 `라인id|`)
+    standards: Object.fromEntries(s.standards.filter((x) => lines.some((l) => l.id === x.postId)).map((x) => [`${x.postId}|${x.productId ?? ''}`, x.need])),
+    lines: lines.map((post) => ({
+      postId: post.id, code: post.code, name: post.name, defaultNeed: post.defaultNeed,
+      cells: shifts.map((c) => {
+        const pl = effectivePlan(s, post, c.date, c.shift);
+        return {
+          productId: pl.productId, status: pl.status,
+          product: pl.productId ? I.product.get(pl.productId)?.name ?? '(삭제됨)' : '',
+          // 그 교대에 직접 적은 계획인지(아니면 앞 계획을 이어받은 것)
+          set: explicit.has(`${c.date}|${c.shift}|${post.id}`),
+          need: pl.status === 'run' ? standardFor(s, post.id, pl.productId)?.need ?? post.defaultNeed : 0,
+        };
+      }),
+    })),
+  };
 }
 
 // ───────────── 근무자: 본인 데이터만 ─────────────

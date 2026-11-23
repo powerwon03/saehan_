@@ -205,7 +205,7 @@ describe('시연 12일 연속 흐름(교대 주기 한 바퀴)', () => {
       const real = seoulMs(date, '14:00');
       pinDemoClock(s, real); // 낮에 열어도 교대 시작 1시간 전으로 맞춰진다
       const now = real + s.settings.clockOffsetMin * MIN;
-      expect(seoul(now)).toEqual({ date, time: '06:00' });
+      expect(seoul(now)).toEqual({ date, time: '07:00' });
 
       const cast = pickDemoCast(s, now);
       expect(cast.worker1, `${date} 오늘 근무`).toBeTruthy();

@@ -1,6 +1,23 @@
 {
   "version": "0.0.1",
   "configurations": [
-    { "name": "saehan-pratec", "runtimeExecutable": "npm", "runtimeArgs": ["run", "dev"], "port": 3000 }
+    {
+      "name": "saehan-pratec",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev"
+      ],
+      "port": 3000
+    },
+    {
+      "name": "saehan-local-db",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": [
+        "/c",
+        "set STORAGE=local&& set DB_PATH=data/verify.db&& set ADMIN_PASSWORD=local-verify-only&& set NEXT_DIST_DIR=.next-verify&& npx next dev -p 3100"
+      ],
+      "port": 3100
+    }
   ]
 }

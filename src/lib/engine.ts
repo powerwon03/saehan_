@@ -5,6 +5,7 @@ import type {
 } from './types';
 import { addDays, iso, weekStart } from './dates';
 import { crewShift } from './calendar';
+import { LINE_ROLE } from './labels';
 
 export const boardId = (date: string, shift: Shift, factoryId: string) => `${date}|${shift}|${factoryId}`;
 export const uid = (prefix: string) => `${prefix}_${crypto.randomUUID().replace(/-/g, '').slice(0, 14)}`;
@@ -63,6 +64,31 @@ export function ix(s: State): Ix {
   for (const st of s.standards) I.std.set(`${st.postId}|${st.productId ?? ''}`, st);
   cache.set(s, I);
   return I;
+}
+
+// ───────────────────────── 아웃소싱(일용직) 인력 ─────────────────────────
+// 업체에 인원수만 요청하고 누가 올지는 정해지지 않으므로 사람 표에 넣지 않는다.
+// 배치에는 `out:업체id:성별:난수` 를 사람 id 자리에 적고, 화면에는 「업체명-남」「업체명-여」로 보인다.
+
+export const isOut = (personId: string | null | undefined) => !!personId && personId.startsWith('out:');
+
+/** 그 자리에 요청할 일용직 구분: 품질검사원 자리는 여, 그 밖(운반·박스 등)은 남 */
+export const outGender = (post: Post): 'M' | 'F' => (post.role === LINE_ROLE ? 'F' : 'M');
+
+export const outId = (agencyId: string, gender: 'M' | 'F') => `out:${agencyId}:${gender}:${uid('x').slice(2)}`;
+
+export function outInfo(s: State, personId: string) {
+  const [, agencyId = '', g = 'F'] = personId.split(':');
+  const gender: 'M' | 'F' = g === 'M' ? 'M' : 'F';
+  const agency = s.settings.agencies.find((a) => a.id === agencyId);
+  return { agencyId, gender, agency, name: `${agency?.name ?? '아웃소싱'}-${gender === 'M' ? '남' : '여'}` };
+}
+
+/** 사람 이름. 아웃소싱 인력이면 「업체명-여」 */
+export function personName(s: State, personId: string | null | undefined): string {
+  if (!personId) return '';
+  if (isOut(personId)) return outInfo(s, personId).name;
+  return ix(s).person.get(personId)?.name ?? '(삭제됨)';
 }
 
 // ───────────────────────── 5.3 필요 인원 ─────────────────────────
@@ -160,6 +186,16 @@ export function weekHours(s: State, p: Person, date: string) {
   return n * s.settings.shiftHours;
 }
 
+/**
+ * 그 달 1일부터 그날 전까지 실제로 일한 날 수(배치가 있으면 배치, 없으면 교대 달력에서 결근·휴무를 뺀 날).
+ * 결원이 생기면 이 수가 적은 사람(이번 달에 쉰 날이 많은 사람)에게 먼저 연락한다.
+ */
+export function monthWorkDays(s: State, p: Person, date: string) {
+  let n = 0;
+  for (let d = `${date.slice(0, 7)}-01`; d < date; d = addDays(d, 1)) if (dutyOn(s, p, d)) n++;
+  return n;
+}
+
 /** 쉬는 사람이 그 교대에 추가로 나올 수 있는지. 안 되면 사유 코드, 되면 null */
 export function cannotWorkExtra(s: State, p: Person, date: string, shift: Shift): string | null {
   if (!p.active) return 'inactive';
@@ -199,7 +235,9 @@ export function score(s: State, p: Person, row: NeedRow, date: string, asSub: bo
   let v = rateOf(s, skillOf(s, p, post)) * 100;
   if (p.lastPostId === post.id) v += w.samePost;
   v += Math.min(p.experience[post.id] ?? 0, 50) * 0.2;
-  if (row.productId && (p.productExperience[row.productId] ?? 0) > 0) v += w.sameProduct;
+  // 라인 배정은 「생산 제품 → 숙련도」 순으로 본다: 그 제품을 해 본 사람이 숙련도 차이보다 항상 앞선다.
+  const made = row.productId ? p.productExperience[row.productId] ?? 0 : 0;
+  if (made > 0) v += 200 + Math.min(made, 50) * 0.4 + w.sameProduct;
   if (p.factoryId === post.factoryId) v += w.sameFactory;
   v += p.role === post.role ? w.roleMatch : -20;
   if (asSub) v -= recentSubs(s, p, date) * w.recentSub;
@@ -344,6 +382,10 @@ export interface Candidate {
   rate: number;
   lang: string;
   crew: string;
+  /** 연락처(전화로 출근 가능 여부를 확인한다) */
+  phone: string;
+  /** 이번 달 실 근무일수 */
+  monthDays: number;
 }
 
 export interface Slot {
@@ -375,13 +417,16 @@ export function recommend(s: State, slot: Slot): Candidate[] {
     const hasProduct = !!row.productId && (p.productExperience[row.productId] ?? 0) > 0;
     const sameFactory = p.factoryId === slot.factoryId;
     const hours = weekHours(s, p, slot.date);
+    const monthDays = monthWorkDays(s, p, slot.date);
     // 앞 기준이 항상 이기도록 점수를 자릿수로 나눈다.
+    // ① 쉬는 사람 → ② 같은 공장 → ③ 이번 달 실 근무일수가 적은 사람 → ④ 같은 제품 경험 → ⑤ 숙련도
     const v =
-      (type === 'off' ? 10_000_000 : 0) +
-      (hasExp ? 1_000_000 : 0) +
+      (type === 'off' ? 1_000_000_000 : 0) +
+      (sameFactory ? 100_000_000 : 0) +
+      (40 - monthDays) * 1_000_000 +
       (hasProduct ? 100_000 : 0) +
-      Math.max(0, 99 - recentSubs(s, p, slot.date)) * 1000 +
-      skill * 100 + (sameFactory ? 50 : 0) - hours;
+      skill * 10_000 +
+      Math.max(0, 99 - recentSubs(s, p, slot.date)) * 10 - hours / 10;
 
     const reasons: string[] = [];
     if (hasExp) reasons.push('exp');
@@ -395,7 +440,7 @@ export function recommend(s: State, slot: Slot): Candidate[] {
 
     out.push({
       personId: p.id, name: p.name, empNo: p.empNo, type, rank: 0, score: v,
-      reasons, cautions, skill, rate: rateOf(s, skill), lang: p.lang, crew: p.crew,
+      reasons, cautions, skill, rate: rateOf(s, skill), lang: p.lang, crew: p.crew, phone: p.phone, monthDays,
     });
   }
   out.sort((a, b) => b.score - a.score || (a.personId < b.personId ? -1 : 1));

@@ -12,6 +12,23 @@ export const dow = (d: string) => new Date(toMs(d)).getUTCDay();
 /** 그 주 월요일 */
 export const weekStart = (d: string) => addDays(d, -((dow(d) + 6) % 7));
 export const monthOf = (d: string) => d.slice(0, 7);
+
+/**
+ * 생산계획의 한 주: 금요일 야간에 시작해 다음 금요일 주간에 끝난다(목요일 임시 → 금요일 확정).
+ * 그 교대가 속한 주의 시작 금요일을 돌려준다.
+ */
+export function planWeekOf(date: string, shift: 'day' | 'night') {
+  const back = (dow(date) + 2) % 7; // 금 0, 토 1, … 목 6
+  return back === 0 && shift === 'day' ? addDays(date, -7) : addDays(date, -back);
+}
+
+/** 그 주의 교대 14개: 금 야간, 토 주간, 토 야간, …, 목 야간, 다음 금 주간 */
+export function planWeekShifts(friday: string): { date: string; shift: 'day' | 'night' }[] {
+  const out: { date: string; shift: 'day' | 'night' }[] = [{ date: friday, shift: 'night' }];
+  for (let i = 1; i <= 6; i++) out.push({ date: addDays(friday, i), shift: 'day' }, { date: addDays(friday, i), shift: 'night' });
+  out.push({ date: addDays(friday, 7), shift: 'day' });
+  return out;
+}
 export const isDate = (d: unknown): d is string =>
   typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d) && fromMs(toMs(d)) === d;
 

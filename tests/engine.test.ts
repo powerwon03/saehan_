@@ -247,12 +247,11 @@ describe('대체 인력 추천 순서', () => {
     expect(list.filter((c) => c.type === 'standby')).toHaveLength(1);
   });
 
-  it('① 쉬는 사람 → ② 이 업무 경험 → ③ 같은 제품 경험 순으로 앞 기준이 항상 이긴다', () => {
+  it('① 쉬는 사람 → ② 같은 공장 → ③ 이번 달 실 근무일수가 적은 사람 순으로 앞 기준이 항상 이긴다', () => {
     const key = (c: (typeof list)[number]) =>
-      (c.type === 'off' ? 100 : 0) + (c.reasons.includes('exp') ? 10 : 0) + (c.reasons.includes('product') ? 1 : 0);
+      (c.type === 'off' ? 10000 : 0) + (ix(s).person.get(c.personId)!.factoryId === 'f1' ? 1000 : 0) + (40 - c.monthDays);
     for (let i = 1; i < list.length; i++) expect(key(list[i - 1])).toBeGreaterThanOrEqual(key(list[i]));
     expect(list[0].type).toBe('off');
-    expect(list[0].reasons).toContain('exp');
   });
 
   it('다른 공장 사람은 근거에 공장 이름이 붙는다', () => {

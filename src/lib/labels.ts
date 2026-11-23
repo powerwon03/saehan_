@@ -10,6 +10,9 @@ export const CREW_LABEL: Record<Crew, string> = { A: 'A조', B: 'B조', C: 'C조
 export const CREW_SHORT: Record<Crew, string> = { A: 'A', B: 'B', C: 'C', DAY: '주간' };
 export const LANG_LABEL: Record<string, string> = { ko: '한국어', en: 'English', mn: '몽골어', vi: '베트남어', ne: '네팔어' };
 export const REPORTER_LABEL: Record<string, string> = { self: '본인', leader: '반장', support: '지원팀' };
+export const COMPANY_NAME = '새한 프라텍';
+/** 아웃소싱 업체에 요청할 때 쓰는 직무 이름 */
+export const OUT_JOB: Record<'M' | 'F', string> = { M: '운반&박스(남)', F: '품질검사원(여)' };
 /** 라인에 서는 사람의 역할 */
 export const LINE_ROLE = '검사원';
 export const ROLES = [LINE_ROLE, '운반', 'OP', 'BOX', '반장', '설비관리', '생산관리'];

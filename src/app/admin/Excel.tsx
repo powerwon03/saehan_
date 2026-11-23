@@ -91,6 +91,12 @@ export default function Excel({ act, say }: TabProps) {
           .map((x: Any) => [x.empNo, x.name, CREW_SHORT[x.crew as 'A'] ?? x.crew, ...x.cells, x.work, x.night, x.sub, x.missed, x.hours]);
         XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([head, ...body]), f);
       }
+      if (r.outsourced?.length) {
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+          ['날짜', '교대', '공장', '업체', '운반&박스(남)', '품질검사원(여)', '합계'],
+          ...r.outsourced.map((x: Any) => [x.date, x.shift === 'day' ? '주간' : '야간', x.factory, x.agency, x.male, x.female, x.male + x.female]),
+        ]), '아웃소싱');
+      }
       XLSX.writeFile(wb, `근태표_${month}.xlsx`);
     } catch (e) {
       say((e as Error).message, true);

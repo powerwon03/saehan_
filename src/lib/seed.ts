@@ -9,8 +9,8 @@ export function defaultSettings(): Settings {
     expiryMin: 20,
     shiftHours: 8,
     maxWeekHours: 52,
-    dayStart: '07:00',
-    nightStart: '19:00',
+    dayStart: '08:00',
+    nightStart: '20:00',
     weights: { samePost: 15, sameProduct: 3, sameFactory: 1, roleMatch: 5, recentSub: 25 },
     skillRates: [30, 60, 90, 100],
     // 12일 주기: 주간 4 → 휴무 2 → 야간 4 → 휴무 2
@@ -18,6 +18,8 @@ export function defaultSettings(): Settings {
     crewOffsets: { A: 0, B: 4, C: 8 },
     carryExtraLines: 6,
     clockOffsetMin: 0,
+    agencies: [],
+    planWeeks: {},
   };
 }
 
@@ -213,9 +215,13 @@ function seedPeople(s: State): Person[] {
   return people;
 }
 
+/** 체험용 가상 아웃소싱 업체 */
+const DEMO_AGENCIES = [{ id: 'agdemo1', name: '가람인력', phone: '' }, { id: 'agdemo2', name: '한빛인력', phone: '' }];
+
 export function seedDemo(today = '2025-01-02'): State {
   const s = seedStructure(emptyState(), today);
   s.people = seedPeople(s);
+  s.settings.agencies = DEMO_AGENCIES.map((a) => ({ ...a }));
   return s;
 }
 
@@ -242,7 +248,12 @@ export function virtualize(real: State): State {
   s.products = copy(real.products);
   s.standards = copy(real.standards);
   s.plan = copy(real.plan);
-  s.settings = { ...copy(real.settings), clockOffsetMin: 0 };
+  s.settings = { ...copy(real.settings), clockOffsetMin: 0, planWeeks: {} };
+  // 아웃소싱 업체도 가상 이름으로 바꾼다. 실제 회사에 없으면 눌러 볼 수 있게 두 곳을 넣는다.
+  const realAgencies = real.settings.agencies ?? [];
+  s.settings.agencies = (realAgencies.length ? realAgencies : DEMO_AGENCIES).map((a, i) => ({
+    id: a.id, name: DEMO_AGENCIES[i]?.name ?? `가상인력${i + 1}`, phone: '',
+  }));
 
   const used = new Set<string>();
   const people = real.people.filter((p) => p.active)

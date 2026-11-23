@@ -23,6 +23,7 @@ export default function People({ act, refresh, say, go }: TabProps) {
   const [status, setStatus] = useState<'active' | 'left' | 'all'>('active');
   const [factory, setFactory] = useState('');
   const [find, setFind] = useState('');
+  const [noPhone, setNoPhone] = useState(false);
   const [edit, setEdit] = useState<Any>(null);
 
   useEffect(() => {
@@ -33,8 +34,11 @@ export default function People({ act, refresh, say, go }: TabProps) {
   const list = d.people
     .filter((p: Any) => status === 'all' || (status === 'active' ? p.active : !p.active))
     .filter((p: Any) => p.factoryId === factory)
-    .filter((p: Any) => !find || p.name.includes(find) || p.empNo.includes(find));
+    .filter((p: Any) => !find || p.name.includes(find) || p.empNo.includes(find))
+    .filter((p: Any) => !noPhone || !p.phone);
   const active = d.people.filter((p: Any) => p.active).length;
+  // 결원이 생기면 쉬는 사람에게 전화로 연락하므로 모든 재직자의 연락처가 있어야 한다
+  const missing = d.people.filter((p: Any) => p.active && !p.phone).length;
   const posts = d.posts.filter((p: Any) => p.factoryId === factory && !p.unmanned);
 
   return (
@@ -64,12 +68,18 @@ export default function People({ act, refresh, say, go }: TabProps) {
         </div>
         <input className="hr-search" placeholder="이름·사번 찾기" value={find} onChange={(e) => setFind(e.target.value)} />
       </div>
+      {(missing > 0 || noPhone) && (
+        <div className="notice-bar" style={{ borderRadius: 8, marginBottom: 12, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          <span>연락처가 없는 재직자 {missing}명 — 결원이 생기면 쉬는 사람에게 전화로 연락하므로 모두 입력해 주세요.</span>
+          <button className="btn btn-sm" onClick={() => { setNoPhone(!noPhone); setStatus('active'); setView('list'); }}>{noPhone ? '전체 보기' : '연락처 없는 사람만 보기'}</button>
+        </div>
+      )}
 
       {view === 'list' ? (
         <div className="table-scroll">
           <table className="grid">
             <thead>
-              <tr><th>사번</th><th>이름</th><th>조</th><th>소속 · 역할</th><th>입사일</th><th>주요 숙련</th><th>상태</th><th style={{ width: 210 }} /></tr>
+              <tr><th>사번</th><th>이름</th><th>조</th><th>소속 · 역할</th><th>연락처</th><th>입사일</th><th>주요 숙련</th><th>상태</th><th style={{ width: 210 }} /></tr>
             </thead>
             <tbody>
               {list.map((p: Any) => {
@@ -80,6 +90,7 @@ export default function People({ act, refresh, say, go }: TabProps) {
                     <td><strong>{p.name}</strong>{d.locked.includes(p.id) && <span className="badge badge-danger" style={{ marginLeft: 6 }}>잠김</span>}</td>
                     <td>{CREW_SHORT[p.crew as 'A'] ?? p.crew}</td>
                     <td>{p.affiliation} · {p.role}{p.fixedPostId ? ' (지정)' : ''}</td>
+                    <td>{p.phone || (p.active ? <span className="badge badge-danger">없음</span> : '-')}</td>
                     <td>{p.hiredAt || '-'}</td>
                     <td>
                       {top.length ? top.map((x: Any) => <span key={x.post.id} className={`lv lv-${x.lv}`}>{x.post.code} {SKILL_SHORT[x.lv]}</span>) : <span className="muted">-</span>}
@@ -104,7 +115,7 @@ export default function People({ act, refresh, say, go }: TabProps) {
                   </tr>
                 );
               })}
-              {!list.length && <tr><td colSpan={8} className="muted" style={{ textAlign: 'center', padding: 24 }}>해당하는 근로자가 없습니다.</td></tr>}
+              {!list.length && <tr><td colSpan={9} className="muted" style={{ textAlign: 'center', padding: 24 }}>해당하는 근로자가 없습니다.</td></tr>}
             </tbody>
           </table>
         </div>
