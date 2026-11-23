@@ -7,7 +7,7 @@ import type { State } from '@/lib/types';
 import { touch } from '@/lib/engine';
 import { expireRequests } from '@/lib/flows';
 import { defaultSettings, emptyState, seedDemo, seedStructure, virtualize } from '@/lib/seed';
-import { pinDemoClock } from '@/lib/demo';
+import { pinDemoClock, stageDemoPlan } from '@/lib/demo';
 import { seoul } from '@/lib/dates';
 import {
   httpTransport, sqliteBackend, supabaseBackend, StoreError, type Backend, type Changes, type CompanyRow,
@@ -250,6 +250,7 @@ export async function resetDemo(company: string) {
   await mutate(company, (s) => {
     const fresh = real ?? seedDemo(today());
     pinDemoClock(fresh, Date.now());
+    stageDemoPlan(fresh, today());
     Object.assign(s, fresh);
   });
 }

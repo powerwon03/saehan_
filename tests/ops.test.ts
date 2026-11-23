@@ -3,7 +3,8 @@ import { describe, expect, it } from 'vitest';
 import { addDays, dow, planWeekOf, planWeekShifts, seoulMs } from '@/lib/dates';
 import { effectivePlan, isOut, ix, monthWorkDays, needs, personName, recommend, scheduledShift, score } from '@/lib/engine';
 import { autoAssign, confirmBoard, fillOutsource, FlowError, placeOutsource, reportAbsence, replaceAssignment, unassign } from '@/lib/flows';
-import { seedDemo } from '@/lib/seed';
+import { seedDemo, virtualize } from '@/lib/seed';
+import { pickDemoCast, stageDemoPlan } from '@/lib/demo';
 import { adminAction } from '@/server/actions';
 import { attendanceView, boardView, defaultBoard, planView } from '@/server/views';
 
@@ -214,6 +215,47 @@ describe('주 단위 생산계획 (금요일 야간 ~ 다음 금요일 주간)',
     expect(line.cells.every((c) => c.set)).toBe(true);
     expect(line.cells[4]).toMatchObject({ productId: 'pr-det1l', status: 'run' });
     expect(line.cells[6].status).toBe('off');
+  });
+});
+
+describe('시연 준비(체험 회사)', () => {
+  it('이번 주 생산계획은 직접 적고 확정한 상태, 다음 주는 임시로 남는다', () => {
+    const s = seedDemo('2025-05-06');
+    const before = planView(s, seoulMs('2025-05-06', '07:00'), { factoryId: 'f1' });
+    expect(before.week).toBe('2025-05-02');
+    stageDemoPlan(s, '2025-05-06');
+    const now = seoulMs('2025-05-06', '07:00');
+    const week = planView(s, now, { factoryId: 'f1' });
+    expect(week.final).toBe(true);
+    expect(week.lines.every((l) => l.cells.every((c) => c.set))).toBe(true);
+    // 값은 준비 전과 같다(이어받던 계획을 그대로 적었을 뿐)
+    expect(week.lines.map((l) => l.cells.map((c) => [c.productId, c.status]))).toEqual(before.lines.map((l) => l.cells.map((c) => [c.productId, c.status])));
+    expect(planView(s, now, { factoryId: 'f2' }).final).toBe(true);
+    const next = planView(s, now, { factoryId: 'f1', week: '2025-05-09' });
+    expect(next.final).toBe(false);
+    expect(next.lines.some((l) => l.cells.some((c) => c.set))).toBe(false);
+    // 두 번 해도 칸이 겹치지 않는다
+    const n = s.plan.length;
+    stageDemoPlan(s, '2025-05-06');
+    expect(s.plan).toHaveLength(n);
+    expect(new Set(s.plan.map((c) => c.id)).size).toBe(n);
+  });
+
+  it('금요일에는 주간이 속한 주와 야간이 속한 주를 모두 준비한다', () => {
+    const s = seedDemo('2025-05-09');
+    stageDemoPlan(s, '2025-05-09');
+    expect(Object.keys(s.settings.planWeeks).sort()).toEqual(['f1|2025-05-02', 'f1|2025-05-09', 'f2|2025-05-02', 'f2|2025-05-09']);
+  });
+
+  it('체험 근무자 일부는 네팔어 화면을 쓰고, 쉬는 사람 배역은 네팔어 사용자를 먼저 고른다', () => {
+    const demo = virtualize(seedDemo());
+    const ne = demo.people.filter((p) => p.lang === 'ne');
+    expect(ne.length).toBeGreaterThanOrEqual(4);
+    expect(ne.every((p) => p.role === '검사원')).toBe(true);
+    expect(new Set(demo.people.map((p) => p.name)).size).toBe(demo.people.length);
+    const cast = pickDemoCast(demo, NOW);
+    expect(cast.worker1).toBeTruthy();
+    expect(cast.offWorkers.length).toBeGreaterThanOrEqual(1);
   });
 });
 

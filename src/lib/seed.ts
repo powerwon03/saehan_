@@ -233,6 +233,7 @@ const V_GIVEN = [
   '예솔', '우리', '이든', '초롱', '푸름', '한결', '해솔', '가람', '나루', '다온', '로운', '모아', '빛나', '새롬',
 ];
 const V_VI = ['응우옌 반 안', '쩐 티 흐엉', '레 반 둑', '팜 티 란', '호앙 반 남', '부 티 마이', '당 반 훙', '부이 티 투'];
+const V_NE = ['수닐 타파', '비말 구룽', '라메시 라이', '프라카시 마가르', '디팍 셰르파', '산토시 타망', '아니타 림부', '비나 카르키'];
 const V_MN = ['바트에르덴', '간볼드', '뭉흐바트', '오윤치멕', '볼드바타르', '사란게렐', '엥흐투야', '바야르마'];
 
 /**
@@ -258,11 +259,11 @@ export function virtualize(real: State): State {
   const used = new Set<string>();
   const people = real.people.filter((p) => p.active)
     .sort((a, b) => a.factoryId.localeCompare(b.factoryId) || a.crew.localeCompare(b.crew) || a.id.localeCompare(b.id));
-  let k = 0, vi = 0, mn = 0;
+  let k = 0, vi = 0, mn = 0, ne = 0;
   s.people = people.map((p, i) => {
-    // 검사원 일부는 베트남어·몽골어 화면을 쓰는 사람으로 둔다(다국어 화면 체험용)
-    const lang: Lang = p.role === LINE_ROLE ? (i % 7 === 3 ? 'vi' : i % 7 === 5 ? 'mn' : 'ko') : 'ko';
-    let name = lang === 'vi' ? V_VI[vi++] : lang === 'mn' ? V_MN[mn++] : undefined;
+    // 검사원 일부는 네팔어·베트남어·몽골어 화면을 쓰는 사람으로 둔다(다국어 화면 체험용)
+    const lang: Lang = p.role === LINE_ROLE ? (i % 7 === 1 ? 'ne' : i % 7 === 3 ? 'vi' : i % 7 === 5 ? 'mn' : 'ko') : 'ko';
+    let name = lang === 'ne' ? V_NE[ne++] : lang === 'vi' ? V_VI[vi++] : lang === 'mn' ? V_MN[mn++] : undefined;
     // 준비한 외국 이름이 떨어지면 한국식 가상 이름을 쓴다
     while (!name || used.has(name)) {
       name = V_SUR[k % V_SUR.length] + V_GIVEN[(k * 7 + Math.floor(k / V_SUR.length)) % V_GIVEN.length];

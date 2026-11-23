@@ -1,8 +1,8 @@
 // 체험(데모) 회사 전용: 그날의 체험 배역 고르기와 데모 시계.
 // 실제 회사에서는 쓰지 않는다.
 import type { Shift, State } from './types';
-import { boardId, ix, planAssign, recommend } from './engine';
-import { seoul, seoulMs } from './dates';
+import { boardId, effectivePlan, ix, planAssign, recommend, touch } from './engine';
+import { planWeekOf, planWeekShifts, seoul, seoulMs } from './dates';
 
 export interface DemoCast {
   date: string;
@@ -14,7 +14,7 @@ export interface DemoCast {
   offWorkers: string[];
 }
 
-const LANG_ORDER: Record<string, number> = { vi: 0, mn: 1 };
+const LANG_ORDER: Record<string, number> = { ne: 0, vi: 1, mn: 2 };
 
 export function pickDemoCast(s: State, now: number): DemoCast {
   const today = seoul(now).date;
@@ -76,6 +76,32 @@ export function pickDemoCast(s: State, now: number): DemoCast {
     }
   }
   return fallback ?? { date: today, shift: 'day', factoryId: s.factories[0]?.id ?? '', worker1: null, offWorkers: [] };
+}
+
+/**
+ * 시연 준비: 이번 주 생산계획을 「직접 적고 확정한」 상태로 만든다(다음 주는 임시로 남는다).
+ * 그러면 배치 화면에는 「이번 주 생산계획 확정」이 보이고, 생산계획 메뉴에서
+ * 다음 주를 「지난주와 같게」로 채운 뒤 「계획 확정」을 눌러 볼 수 있다.
+ */
+export function stageDemoPlan(s: State, today: string) {
+  const weeks = [...new Set([planWeekOf(today, 'day'), planWeekOf(today, 'night')])];
+  const have = new Set(s.plan.map((c) => c.id));
+  const lines = s.posts.filter((p) => p.kind === 'line' && p.active && !p.unmanned);
+  const add: State['plan'] = [];
+  for (const week of weeks) {
+    for (const c of planWeekShifts(week)) {
+      for (const post of lines) {
+        const id = `${c.date}|${c.shift}|${post.id}`;
+        if (have.has(id)) continue;
+        const pl = effectivePlan(s, post, c.date, c.shift);
+        add.push({ id, date: c.date, shift: c.shift, postId: post.id, productId: pl.productId, status: pl.status });
+      }
+    }
+    for (const f of s.factories) s.settings.planWeeks[`${f.id}|${week}`] = true;
+  }
+  // 앞 계획을 이어받은 값을 모두 읽은 뒤에 한꺼번에 넣는다(먼저 넣은 칸이 뒤 칸의 값이 되지 않게)
+  s.plan.push(...add);
+  touch(s);
 }
 
 /**
