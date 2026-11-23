@@ -62,6 +62,7 @@ export function pickDemoCast(s: State, now: number): DemoCast {
         .slice(0, 12);
       if (!fallback && cands[0]) fallback = { date: today, shift, factoryId: f.id, worker1: cands[0].p.id, offWorkers: [] };
       let one: DemoCast | null = null;
+      let two: DemoCast | null = null;
       for (const { a, p } of cands) {
         // ④ 오늘 휴무 = 추천 목록 앞 3명 안의 쉬는 사람(베트남어 → 몽골어 먼저) 최대 2명
         const off = recommend(sim, { factoryId: f.id, date: today, shift, postId: a.postId })
@@ -69,9 +70,12 @@ export function pickDemoCast(s: State, now: number): DemoCast {
           .sort((x, y) => (LANG_ORDER[x.lang] ?? 9) - (LANG_ORDER[y.lang] ?? 9) || x.rank - y.rank)
           .slice(0, 2).map((c) => c.personId);
         const cast = { date: today, shift, factoryId: f.id, worker1: p.id, offWorkers: off };
-        if (off.length >= 2) return cast;
+        // 쉬는 사람 배역에 네팔어 화면 사용자가 있는 자리를 먼저 고른다(네팔어 화면을 보여 주기 좋게)
+        if (off.length >= 2 && off.some((id) => I.person.get(id)?.lang === 'ne')) return cast;
+        if (off.length >= 2 && !two) two = cast;
         if (off.length === 1 && !one) one = cast;
       }
+      if (two) return two;
       if (one) return one;
     }
   }
