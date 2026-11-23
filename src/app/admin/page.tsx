@@ -1,7 +1,7 @@
 'use client';
-// 관리자 화면(PC). 메뉴: 배치 · 생산계획 · 휴무 승인 · 근로자 관리 · 아웃소싱 · 엑셀 가져오기 · 기준 정보
-// 「설정」 메뉴는 꼭 필요한 기능만 남기려고 뺐다. 관리자 비밀번호와 교대 달력 보기는 「기준 정보」로 옮겼고,
-// 나머지 값(근무시간·교대 주기·배치 점수 등)을 고치는 화면은 SettingsTab.tsx 에 그대로 있다.
+// 관리자 화면(PC). 위쪽 메뉴는 매일 쓰는 것만: 배치 · 생산계획 · 휴무 승인 · 근로자 관리 · 아웃소싱
+// 가끔 쓰는 것(제품 · 라인, 관리자 비밀번호, 엑셀 가져오기)은 오른쪽 위 「관리」 버튼 안에 모았다.
+// 「설정」 메뉴는 뺐다. 근무시간·교대 주기·배치 점수 등을 고치는 화면은 SettingsTab.tsx 에 그대로 있다.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { get, post, type Any } from '../client';
 import Board from './Board';
@@ -23,7 +23,7 @@ export interface TabProps {
 }
 
 const TABS: [string, string][] = [
-  ['board', '배치'], ['plan', '생산계획'], ['leaves', '휴무 승인'], ['people', '근로자 관리'], ['outsource', '아웃소싱'], ['import', '엑셀 가져오기'], ['master', '기준 정보'],
+  ['board', '배치'], ['plan', '생산계획'], ['leaves', '휴무 승인'], ['people', '근로자 관리'], ['outsource', '아웃소싱'],
 ];
 const SAVE_LABEL: Record<string, string> = { loading: '불러오는 중', saved: '저장됨', saving: '저장 중', error: '저장 재시도 중' };
 
@@ -99,6 +99,8 @@ export default function Admin() {
   if (!me) return <div className="loading">확인 중</div>;
   const s = me.session;
   const props: TabProps = { act, refresh, me, say, go: setTab };
+  // 「관리」 안의 화면: master = 제품 · 라인, import = 엑셀 가져오기
+  const manage = tab === 'master' || tab === 'import';
 
   return (
     <>
@@ -114,6 +116,7 @@ export default function Admin() {
         </nav>
         <span style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
           <span className={`save save-${saving}`}>{SAVE_LABEL[saving]}</span>
+          <button className={`btn btn-sm${manage ? ' on' : ''}`} title="제품 · 라인, 관리자 비밀번호, 엑셀 가져오기" onClick={() => setTab('master')}>관리</button>
           {s.demo && (
             <button className="btn btn-sm" onClick={() => confirm('이 회사 데이터를 데모 처음 상태로 되돌릴까요?') && void act({ type: 'demoReset' })}>데모 초기화</button>
           )}
@@ -127,6 +130,15 @@ export default function Admin() {
         {tab === 'leaves' && <Leaves {...props} />}
         {tab === 'people' && <People {...props} />}
         {tab === 'outsource' && <Outsource {...props} />}
+        {manage && (
+          <div className="toolbar">
+            <strong style={{ fontSize: 17, color: 'var(--navy)' }}>관리</strong>
+            <div className="seg">
+              <button className={tab === 'master' ? 'on' : ''} onClick={() => setTab('master')}>제품 · 라인</button>
+              <button className={tab === 'import' ? 'on' : ''} onClick={() => setTab('import')}>엑셀 가져오기</button>
+            </div>
+          </div>
+        )}
         {tab === 'import' && <Excel {...props} />}
         {tab === 'master' && <Master {...props} />}
       </main>
